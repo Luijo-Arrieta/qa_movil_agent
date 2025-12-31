@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "gofixi-agent"
+version = "0.1.0"
+description = "Agente de IA autónomo para ejecutar pruebas móviles en Android"
+authors = ["Luijo WSL <luis.arrieta@imagineapps.co>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+appium-python-client = ">=3.1.0"
+openai = ">=1.12.0"
+anthropic = ">=0.18.0"
+python-dotenv = ">=1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.4.0"
+pytest-timeout = ">=2.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+timeout = 300
+timeout_method = "thread"
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings"
+]
+markers = [
+    "slow: marca tests que toman mucho tiempo",
+    "integration: marca tests de integración",
+    "unit: marca tests unitarios"
+]
+
