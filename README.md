@@ -49,8 +49,38 @@ poetry install
 ```
 
 4. Activar el entorno virtual de Poetry:
+
+**En Linux/Ubuntu:**
 ```bash
 poetry shell
+```
+
+**En Windows/PowerShell (Poetry 2.0.0+):**
+```powershell
+# Opción 1: Usar poetry env activate (recomendado)
+poetry env activate
+# Copia y ejecuta el comando que muestra (ej: & "C:\...\activate.ps1")
+
+# Opción 2: Instalar el plugin de shell para usar poetry shell
+poetry self add poetry-plugin-shell
+poetry shell
+
+# Opción 3: Usar poetry run sin activar (más simple)
+poetry run pytest  # Ejecuta comandos directamente en el entorno
+```
+
+**Verificar que el entorno está activado:**
+```bash
+# Ver la ruta de Python (debe apuntar al venv)
+where python        # Windows
+which python        # Linux
+
+# O verificar la variable de entorno
+echo $env:VIRTUAL_ENV    # PowerShell
+echo $VIRTUAL_ENV        # Linux
+
+# O ver la ruta completa del Python activo
+python -c "import sys; print(sys.executable)"
 ```
 
 5. Configurar variables de entorno:
@@ -146,6 +176,19 @@ Ya con Appium corriendo y el dispositivo/emulador disponible, puedes comenzar a 
 
 ## 💻 Uso
 
+### 1. Iniciar el Entorno
+
+```bash
+# Terminal 1: Iniciar emulador Android
+emulator -avd phone_test -wipe-data -no-snapshot-load
+
+# Terminal 2: Iniciar Appium Server
+appium --use-plugins=inspector --allow-cors
+
+# Terminal 3: Verificar conexión
+adb devices   # Debe mostrar: emulator-5554   device
+```
+
 ### Ejemplo básico
 
 ```python
@@ -187,10 +230,10 @@ def test_login(driver_setup):
 ## 🧪 Ejecutar Tests
 
 ```bash
-# Todos los tests (dentro del entorno de Poetry)
+# Todos los tests (recomendado: usar poetry run)
 poetry run pytest
 
-# O si ya estás en el shell de Poetry:
+# O si ya activaste el entorno virtual:
 pytest
 
 # Tests específicos
@@ -202,6 +245,8 @@ poetry run pytest -v
 # Con timeout
 poetry run pytest --timeout=300
 ```
+
+> **Nota:** En Windows con Poetry 2.0.0+, es más simple usar `poetry run` antes de cada comando en lugar de activar el entorno manualmente.
 
 ## 📚 Componentes Principales
 

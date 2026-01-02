@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "gofixi-agent"
+name = "qa-movil-agent"
 version = "0.1.0"
 description = "Agente de IA autónomo para ejecutar pruebas móviles en Android"
 authors = ["Luijo WSL <luis.arrieta@imagineapps.co>"]
