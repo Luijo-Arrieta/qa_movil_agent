@@ -6,8 +6,10 @@ import os
 from typing import Optional, Tuple
 from dotenv import load_dotenv
 
-# Cargar variables de entorno desde .env
-load_dotenv()
+# Cargar variables de entorno desde .env y .env.local
+# .env.local tiene prioridad (se carga después y sobrescribe valores)
+load_dotenv(".env")
+load_dotenv(".env.local", override=True)
 
 
 class Config:

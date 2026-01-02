@@ -138,20 +138,23 @@ class UIParser:
         # Determinar role
         role = self._determine_role(class_name, clickable, checkable)
 
-        # Determinar label (prioridad: text > content-desc > resource-id > hint)
-        label = text
+        # Determinar si es input
+        is_input = "edittext" in class_name or "input" in class_name
+        
+        # Determinar label (prioridad lógica: resource-id > content-desc > text > hint)
+        # resource-id es el más estable y único, luego content-desc, luego text, y hint como último recurso
+        label = resource_id
         if not label:
             label = content_desc
         if not label:
-            label = resource_id
+            label = text
         if not label:
-            # Para inputs, intentar obtener hint
+            # Último recurso: hint (puede ser volátil o no estar presente)
             hint = element.get("hint", "").strip()
             if hint:
                 label = hint
 
         # Si es input, siempre incluir aunque no tenga label
-        is_input = "edittext" in class_name or "input" in class_name
         if is_input and not label:
             label = "Input field"  # Label por defecto para inputs sin texto
 
