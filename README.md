@@ -191,8 +191,24 @@ adb devices   # Debe mostrar: emulator-5554   device
 
 ### Ejemplo básico
 
+**Opción 1: Crear un archivo Python (recomendado)**
+
+Crea un archivo `ejemplo_test.py`:
+
 ```python
+from appium import webdriver
 from src.test_runner import AITestRunner
+from src.config import Config
+
+# Configurar el driver de Appium
+config = Config()
+capabilities = {
+    "platformName": "Android",
+    "deviceName": config.ANDROID_DEVICE_NAME,
+    "appPackage": "com.tu.app",
+    "appActivity": ".MainActivity"
+}
+driver = webdriver.Remote(config.APPIUM_SERVER_URL, capabilities)
 
 # Crear runner
 runner = AITestRunner(driver=driver, objective="Realizar login")
@@ -208,6 +224,33 @@ test_plan = [
 
 # Ejecutar
 success = runner.run_test_plan(test_plan)
+print(f"Test {'exitoso' if success else 'falló'}")
+
+# Cerrar driver
+driver.quit()
+```
+
+Ejecutar el archivo:
+```bash
+poetry run python ejemplo_test.py
+```
+
+**Opción 2: Python interactivo**
+
+Para ejecutar código interactivamente en la terminal:
+
+```bash
+# Activar Python con Poetry
+poetry run python
+
+# O si ya activaste el entorno virtual:
+python
+```
+
+Luego dentro de Python:
+```python
+>>> from src.test_runner import AITestRunner
+>>> # ... resto del código
 ```
 
 ### Con pytest
