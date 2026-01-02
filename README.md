@@ -39,7 +39,7 @@ curl -sSL https://install.python-poetry.org | python3 -
 
 2. Clonar el repositorio:
 ```bash
-git clone <repo-url>
+git clone git@github.com:Luijo-Arrieta/qa_movil_agent.git
 cd Gofixi_Agent
 ```
 
@@ -81,6 +81,68 @@ ANDROID_DEVICE_NAME=emulator-5554
 DEFAULT_WAIT_TIMEOUT=10
 IMPLICIT_WAIT=5
 ```
+
+## 🛠️ Preparativos previos (setup local)
+
+Antes de correr las pruebas de la app, asegúrate de tener listos los recursos esenciales en tu máquina local.
+
+### 1. Dispositivos Android
+
+Verifica que tienes conectados (o disponibles en emulador) los dispositivos Android necesarios.
+
+**Para listar los dispositivos disponibles ejecuta:**
+```bash
+adb devices
+```
+Esto mostrará los dispositivos/emuladores conectados. Deberías ver una salida como:
+```
+List of devices attached
+emulator-5554   device
+```
+
+#### Iniciar un emulador Android
+Si no ves ningún emulador activo, puedes lanzar uno manualmente. Para ver los emuladores instalados:
+```bash
+$ANDROID_HOME/emulator/emulator -list-avds
+```
+Luego, para iniciarlo:
+```bash
+$ANDROID_HOME/emulator/emulator -avd NOMBRE_DEL_AVD
+```
+O en sistemas con AVD Manager en el path:
+```bash
+emulator -avd NOMBRE_DEL_AVD
+```
+
+### 2. Iniciar Appium con todos los plugins habilitados
+
+Asegúrate de tener Appium instalado. Si no lo tienes:
+```bash
+npm install -g appium
+```
+
+Para listar los plugins disponibles (opcional):
+```bash
+appium plugin list
+```
+
+Para instalar (por ejemplo) el plugin de inspector, puedes utilizar:
+```bash
+appium plugin install --source=npm appium-inspector-plugin
+```
+
+**Para iniciar Appium y activar todos los plugins instalados:**
+```bash
+appium --use-plugins=all
+```
+En bash/shell, simplemente ejecuta ese comando en una terminal antes de correr tus pruebas.
+
+> **Nota:** Si necesitas activar solo plugins específicos:
+```bash
+appium --use-plugins=plugin1,plugin2
+```
+
+Ya con Appium corriendo y el dispositivo/emulador disponible, puedes comenzar a ejecutar los tests.
 
 ## 💻 Uso
 
