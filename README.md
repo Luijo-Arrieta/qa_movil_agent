@@ -104,6 +104,20 @@ ANTHROPIC_API_KEY=sk-ant-...
 # Configuración de Appium
 APPIUM_SERVER_URL=http://localhost:4723
 ANDROID_DEVICE_NAME=emulator-5554
+ANDROID_UDID=emulator-5554  # Opcional: UDID del dispositivo (por defecto usa ANDROID_DEVICE_NAME)
+
+# Configuración de la App Android
+# Opción 1: Usar ruta al APK (recomendado para instalar la app)
+ANDROID_APP_PATH=D:/Imagine/gofixi/utils/apk/2025-12-19-cliente.apk
+# Opción 2: Usar package y activity (si la app ya está instalada)
+ANDROID_APP_PACKAGE=com.imagineapps.gofixiicliente
+ANDROID_APP_ACTIVITY=.MainActivity
+
+# Configuración avanzada de Appium
+ANDROID_AUTOMATION_NAME=UiAutomator2
+ANDROID_AUTO_GRANT_PERMISSIONS=true
+ANDROID_IGNORE_HIDDEN_API_POLICY_ERROR=true
+ANDROID_DISABLE_WINDOW_ANIMATION=true
 
 # Timeouts
 # DEFAULT_WAIT_TIMEOUT: en MINUTOS (10 = 10 minutos)

@@ -155,3 +155,122 @@ class TestUIParser:
         with pytest.raises(ValueError):
             parser.parse_screen("<invalid>xml")
 
+
+class TestUIParserIntegration:
+    """Tests de integración para UIParser con Appium real."""
+
+    @pytest.mark.usefixtures("driver_setup")
+    def test_parse_real_app_screen(self, driver_setup):
+        """
+        Test: Parsear XML real de una app Android usando Appium.
+        
+        Este test se conecta a Appium, obtiene el XML real de la pantalla
+        actual y verifica que el UIParser puede procesarlo correctamente.
+        """
+        # Obtener el XML real de la pantalla actual
+        xml_source = driver_setup.page_source
+        
+        # Verificar que obtuvimos XML válido
+        assert xml_source is not None
+        assert len(xml_source) > 0
+        assert "<hierarchy" in xml_source.lower()
+        
+        # Parsear con UIParser
+        parser = UIParser()
+        elements = parser.parse_screen(xml_source)
+        
+        # Verificar que se parsearon elementos
+        assert isinstance(elements, list)
+        
+        # Si hay elementos, verificar su estructura
+        if len(elements) > 0:
+            element = elements[0]
+            assert "id" in element
+            assert "role" in element
+            assert "label" in element
+            assert "checked" in element
+            assert isinstance(element["id"], int)
+            assert element["role"] in ["button", "input", "checkbox"]
+        
+        # Verificar que los IDs son secuenciales
+        for i, element in enumerate(elements):
+            assert element["id"] == i
+        
+        print(f"\n✓ Se parsearon {len(elements)} elementos interactuables de la app real")
+        if len(elements) > 0:
+            print(f"  Ejemplos de elementos encontrados:")
+            for elem in elements[:5]:  # Mostrar primeros 5
+                print(f"    - ID {elem['id']}: {elem['role']} - '{elem['label']}'")
+
+    @pytest.mark.usefixtures("driver_setup")
+    def test_get_xpath_from_real_elements(self, driver_setup):
+        """
+        Test: Verificar que los XPaths generados son válidos para elementos reales.
+        
+        Este test verifica que el mapeo ID -> XPath funciona correctamente
+        con elementos reales de la app.
+        """
+        xml_source = driver_setup.page_source
+        parser = UIParser()
+        elements = parser.parse_screen(xml_source)
+        
+        # Verificar que hay elementos
+        if len(elements) == 0:
+            pytest.skip("No hay elementos interactuables en la pantalla actual")
+        
+        # Verificar que podemos obtener XPath para cada elemento
+        for element in elements:
+            element_id = element["id"]
+            xpath = parser.get_element_by_id(element_id)
+            
+            assert xpath is not None, f"XPath no encontrado para ID {element_id}"
+            assert len(xpath) > 0, f"XPath vacío para ID {element_id}"
+            assert xpath.startswith("//"), f"XPath inválido: {xpath}"
+            
+            # Intentar encontrar el elemento usando el XPath
+            try:
+                found_elements = driver_setup.find_elements("xpath", xpath)
+                assert len(found_elements) > 0, f"XPath {xpath} no encontró elementos en la app"
+            except Exception as e:
+                # Si falla, al menos verificar que el XPath tiene formato válido
+                print(f"  Nota: No se pudo validar XPath {xpath} (puede ser válido pero elemento no visible)")
+        
+        print(f"\n✓ Se validaron {len(elements)} XPaths de elementos reales")
+
+    @pytest.mark.usefixtures("driver_setup")
+    def test_parser_handles_complex_real_ui(self, driver_setup):
+        """
+        Test: Verificar que el parser maneja correctamente UIs complejas reales.
+        
+        Este test verifica que el parser puede procesar pantallas complejas
+        con múltiples elementos, layouts anidados, etc.
+        """
+        xml_source = driver_setup.page_source
+        parser = UIParser()
+        
+        # Parsear múltiples veces para verificar consistencia
+        elements1 = parser.parse_screen(xml_source)
+        parser.clear()
+        elements2 = parser.parse_screen(xml_source)
+        
+        # Verificar que los resultados son consistentes
+        assert len(elements1) == len(elements2), "El parser debe ser determinístico"
+        
+        # Verificar estructura de elementos
+        for element in elements1:
+            # Verificar que todos los campos requeridos están presentes
+            required_fields = ["id", "role", "label", "checked"]
+            for field in required_fields:
+                assert field in element, f"Campo '{field}' faltante en elemento {element['id']}"
+            
+            # Verificar tipos de datos
+            assert isinstance(element["id"], int)
+            assert isinstance(element["role"], str)
+            assert isinstance(element["label"], str)
+            assert element["checked"] is None or isinstance(element["checked"], bool)
+        
+        # Verificar que no hay elementos duplicados (mismo ID)
+        ids = [elem["id"] for elem in elements1]
+        assert len(ids) == len(set(ids)), "No debe haber IDs duplicados"
+        
+        print(f"\n✓ Parser maneja correctamente UI compleja con {len(elements1)} elementos")

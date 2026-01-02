@@ -28,7 +28,12 @@ class Config:
     ANDROID_DEVICE_NAME: str = os.getenv("ANDROID_DEVICE_NAME", "emulator-5554")
     ANDROID_APP_PACKAGE: Optional[str] = os.getenv("ANDROID_APP_PACKAGE")
     ANDROID_APP_ACTIVITY: Optional[str] = os.getenv("ANDROID_APP_ACTIVITY")
+    ANDROID_APP_PATH: Optional[str] = os.getenv("ANDROID_APP_PATH")  # Ruta al APK
+    ANDROID_UDID: Optional[str] = os.getenv("ANDROID_UDID")  # UDID del dispositivo
     ANDROID_AUTOMATION_NAME: str = os.getenv("ANDROID_AUTOMATION_NAME", "UiAutomator2")
+    ANDROID_AUTO_GRANT_PERMISSIONS: bool = os.getenv("ANDROID_AUTO_GRANT_PERMISSIONS", "true").lower() == "true"
+    ANDROID_IGNORE_HIDDEN_API_POLICY_ERROR: bool = os.getenv("ANDROID_IGNORE_HIDDEN_API_POLICY_ERROR", "true").lower() == "true"
+    ANDROID_DISABLE_WINDOW_ANIMATION: bool = os.getenv("ANDROID_DISABLE_WINDOW_ANIMATION", "true").lower() == "true"
 
     # Timeouts
     # DEFAULT_WAIT_TIMEOUT: en MINUTOS (se convierte a segundos para newCommandTimeout)
@@ -57,22 +62,41 @@ class Config:
     def get_appium_capabilities(cls) -> dict:
         """
         Retorna las capabilities de Appium para Android.
+        Similar a la configuración de WebdriverIO.
 
         Returns:
             Diccionario con capabilities
         """
         capabilities = {
             "platformName": cls.ANDROID_PLATFORM_NAME,
-            "deviceName": cls.ANDROID_DEVICE_NAME,
-            "automationName": cls.ANDROID_AUTOMATION_NAME,
-            "newCommandTimeout": cls.DEFAULT_WAIT_TIMEOUT * 60,  # En segundos
+            "appium:automationName": cls.ANDROID_AUTOMATION_NAME,
+            "appium:deviceName": cls.ANDROID_DEVICE_NAME,
+            "appium:newCommandTimeout": cls.DEFAULT_WAIT_TIMEOUT * 60,  # En segundos
         }
+
+        # Agregar UDID si está configurado
+        if cls.ANDROID_UDID:
+            capabilities["appium:udid"] = cls.ANDROID_UDID
+        else:
+            # Si no hay UDID, usar deviceName como UDID
+            capabilities["appium:udid"] = cls.ANDROID_DEVICE_NAME
+
+        # Agregar ruta del APK si está configurada (prioridad sobre package/activity)
+        if cls.ANDROID_APP_PATH:
+            capabilities["appium:app"] = cls.ANDROID_APP_PATH
 
         # Agregar app package y activity si están configurados
         if cls.ANDROID_APP_PACKAGE:
-            capabilities["appPackage"] = cls.ANDROID_APP_PACKAGE
+            capabilities["appium:appPackage"] = cls.ANDROID_APP_PACKAGE
         if cls.ANDROID_APP_ACTIVITY:
-            capabilities["appActivity"] = cls.ANDROID_APP_ACTIVITY
+            capabilities["appium:appActivity"] = cls.ANDROID_APP_ACTIVITY
+
+        # Agregar capabilities opcionales para mejor compatibilidad
+        capabilities["appium:autoGrantPermissions"] = cls.ANDROID_AUTO_GRANT_PERMISSIONS
+        capabilities["appium:ignoreHiddenApiPolicyError"] = cls.ANDROID_IGNORE_HIDDEN_API_POLICY_ERROR
+        capabilities["appium:disableWindowAnimation"] = cls.ANDROID_DISABLE_WINDOW_ANIMATION
+        capabilities["appium:skipDeviceInitialization"] = False
+        capabilities["appium:disableSuppressAccessibilityService"] = True
 
         return capabilities
 
