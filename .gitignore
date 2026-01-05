@@ -3,12 +3,12 @@
 .claude/
 
 # Archivos de documentación de IA
-CLAUDE.MD
-GEMINI.MD
-OPENAI.MD
-openai.md
-claude.md
-gemini.md
+CLAUDE.*.MD
+GEMINI.*.MD
+OPENAI.*.MD
+openai.*.md
+claude.*.md
+gemini.*.md
 
 # Python
 __pycache__/
