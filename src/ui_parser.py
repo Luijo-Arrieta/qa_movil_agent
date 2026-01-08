@@ -67,8 +67,8 @@ class UIParser:
         logger.debug(f"UIPARSER: Longitud del XML recibido: {xml_length} caracteres")
         
         # Mostrar primeros caracteres para debug
-        preview = xml_source[:200].replace('\n', ' ').replace('\r', '')
-        logger.debug(f"UIPARSER: Preview del XML: {preview}...")
+        #preview = xml_source[:200].replace('\n', ' ').replace('\r', '')
+        #logger.debug(f"UIPARSER: Preview del XML: {preview}...")
         
         try:
             logger.debug("UIPARSER: Parseando XML con ElementTree...")

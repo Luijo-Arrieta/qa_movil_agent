@@ -7,9 +7,11 @@ Estos tests requieren:
 - App instalada o APK configurado
 """
 
+import json
 import logging
 import time
 import traceback
+import xml.dom.minidom
 
 import pytest
 from appium.webdriver.common.appiumby import AppiumBy
@@ -435,3 +437,212 @@ class TestUIParserIntegration:
         
         # Assert final: el test es exitoso si encontramos elementos de login
         assert len(elements) >= 2, f"Se esperaban al menos 2 elementos (input + botón), se encontraron {len(elements)}"
+
+    @pytest.mark.usefixtures("driver_setup")
+    def test_ai_parser_debug(self, driver_setup):
+        """
+        Test de depuración completo para el parser de IA.
+        
+        Este test muestra TODO lo que el parser procesa:
+        - XML source completo (formateado)
+        - JSON de elementos parseados (formateado)
+        - JSON de elementos con XPaths (formateado)
+        - TOON que le llega a la IA (formato eficiente)
+        
+        Ejecutar solo este test:
+        poetry run pytest tests/specs/unit_test_ui_parser_integration.py::TestUIParserIntegration::test_ai_parser_debug -v -s
+        """
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("🔍 TEST DE DEPURACIÓN COMPLETO PARA PARSER DE IA")
+        logger.info("=" * 80)
+        logger.info("")
+        
+        # Esperar a que la app cargue
+        logger.info("📱 Esperando a que la app cargue completamente...")
+        logger.info("   Esperando 12 segundos para que la app inicie...")
+        time.sleep(12)
+        
+        # Capturar screenshot inicial
+        allure_attach_screenshot(driver_setup, "01_ai_parser_debug_inicial")
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # FASE 1: Obtener XML Source
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  FASE 1: OBTENER XML SOURCE")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        logger.info("📱 Obteniendo page_source del driver...")
+        xml_source = driver_setup.page_source
+        
+        assert xml_source is not None, "page_source no debe ser None"
+        assert len(xml_source) > 0, "page_source no debe estar vacío"
+        assert "<hierarchy" in xml_source.lower(), "page_source debe contener <hierarchy>"
+        
+        logger.info(f"✓ XML obtenido: {len(xml_source)} caracteres")
+        
+        # Formatear XML para mejor legibilidad
+        logger.info("")
+        logger.info("📄 XML SOURCE (FORMATEADO):")
+        logger.info("─" * 80)
+        try:
+            # Intentar formatear el XML
+            dom = xml.dom.minidom.parseString(xml_source)
+            formatted_xml = dom.toprettyxml(indent="  ")
+            # Limpiar líneas vacías excesivas
+            lines = [line for line in formatted_xml.split('\n') if line.strip()]
+            formatted_xml = '\n'.join(lines)
+            
+            # Mostrar XML completo (puede ser largo, pero el usuario lo pidió)
+            logger.info(formatted_xml)
+            logger.info("─" * 80)
+            logger.info(f"✓ XML formateado: {len(formatted_xml)} caracteres")
+        except Exception as e:
+            logger.warning(f"⚠ No se pudo formatear XML: {e}")
+            logger.info("📄 XML SOURCE (SIN FORMATEAR):")
+            logger.info("─" * 80)
+            logger.info(xml_source)
+            logger.info("─" * 80)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # FASE 2: Parsear con UIParser
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  FASE 2: PARSEAR CON UIPARSER")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        logger.info("🔍 Creando instancia de UIParser...")
+        parser = UIParser()
+        
+        logger.info("🔍 Parseando XML con UIParser...")
+        elements = parser.parse_screen(xml_source)
+        
+        assert isinstance(elements, list), "elements debe ser una lista"
+        assert len(elements) > 0, "Debe haber al menos un elemento interactuable"
+        
+        logger.info(f"✓ Se parsearon {len(elements)} elementos interactuables")
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # FASE 3: Mostrar JSON de elementos (formateado)
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  FASE 3: JSON DE ELEMENTOS PARSEADOS (FORMATEADO)")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        # Convertir a JSON formateado
+        json_output = json.dumps(elements, indent=2, ensure_ascii=False)
+        
+        logger.info("📋 JSON COMPLETO DE ELEMENTOS:")
+        logger.info("─" * 80)
+        logger.info(json_output)
+        logger.info("─" * 80)
+        logger.info(f"✓ JSON generado: {len(json_output)} caracteres")
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # FASE 4: Mostrar JSON con XPaths
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  FASE 4: JSON DE ELEMENTOS CON XPATHS")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        # Crear lista de elementos con XPaths
+        elements_with_xpath = []
+        for element in elements:
+            element_id = element["id"]
+            xpath = parser.get_element_by_id(element_id)
+            
+            element_with_xpath = element.copy()
+            element_with_xpath["xpath"] = xpath if xpath else "NOT_FOUND"
+            elements_with_xpath.append(element_with_xpath)
+        
+        # Convertir a JSON formateado
+        json_with_xpath = json.dumps(elements_with_xpath, indent=2, ensure_ascii=False)
+        
+        logger.info("📋 JSON CON XPATHS:")
+        logger.info("─" * 80)
+        logger.info(json_with_xpath)
+        logger.info("─" * 80)
+        logger.info(f"✓ JSON con XPaths generado: {len(json_with_xpath)} caracteres")
+        
+        # Mostrar resumen de XPaths
+        logger.info("")
+        logger.info("📊 RESUMEN DE XPATHS:")
+        logger.info("─" * 80)
+        for elem in elements_with_xpath:
+            logger.info(f"  [{elem['id']:3d}] {elem['role']:8s} - XPath: {elem['xpath']}")
+        logger.info("─" * 80)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # FASE 5: Mostrar TOON (formato que le llega a la IA)
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  FASE 5: TOON (FORMATO QUE LLEGA A LA IA)")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        logger.info("🔍 Convirtiendo elementos a formato TOON...")
+        toon_output = parser.elements_to_toon(elements)
+        
+        logger.info("")
+        logger.info("📋 TOON COMPLETO (30-60% menos tokens que JSON):")
+        logger.info("─" * 80)
+        logger.info(toon_output)
+        logger.info("─" * 80)
+        logger.info(f"✓ TOON generado: {len(toon_output)} caracteres")
+        
+        # Comparación de tamaños
+        logger.info("")
+        logger.info("📊 COMPARACIÓN DE TAMAÑOS:")
+        logger.info("─" * 80)
+        logger.info(f"  JSON:     {len(json_output):,} caracteres")
+        logger.info(f"  TOON:     {len(toon_output):,} caracteres")
+        reduction = ((len(json_output) - len(toon_output)) / len(json_output)) * 100 if len(json_output) > 0 else 0
+        logger.info(f"  Reducción: {reduction:.1f}% menos caracteres con TOON")
+        logger.info("─" * 80)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # FASE 6: Resumen final
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  RESUMEN FINAL")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        # Contar por tipo
+        inputs = [e for e in elements if e["role"] == "input"]
+        buttons = [e for e in elements if e["role"] == "button"]
+        checkboxes = [e for e in elements if e["role"] == "checkbox"]
+        
+        logger.info(f"📊 ESTADÍSTICAS:")
+        logger.info(f"   Total de elementos: {len(elements)}")
+        logger.info(f"   📝 Inputs: {len(inputs)}")
+        logger.info(f"   🔘 Botones: {len(buttons)}")
+        logger.info(f"   ☑️  Checkboxes: {len(checkboxes)}")
+        logger.info("")
+        logger.info(f"📏 TAMAÑOS:")
+        logger.info(f"   XML source: {len(xml_source):,} caracteres")
+        logger.info(f"   JSON:       {len(json_output):,} caracteres")
+        logger.info(f"   TOON:       {len(toon_output):,} caracteres")
+        logger.info(f"   Ahorro:     {reduction:.1f}% con TOON")
+        logger.info("")
+        logger.info("✅ Test de depuración completado exitosamente")
+        logger.info("")
+        logger.info("=" * 80)
+        
+        # Capturar evidencia final
+        allure_attach_debug_snapshot(driver_setup, "02_ai_parser_debug_final")
+        
+        # Assert final
+        assert len(elements) > 0, "Debe haber al menos un elemento parseado"
+        assert len(toon_output) > 0, "El TOON no debe estar vacío"
