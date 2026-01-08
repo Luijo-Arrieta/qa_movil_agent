@@ -6,6 +6,17 @@ This file provides guidance to Gemini CLI (gemini.ai/code) when working with cod
 
 AutoDroid-AI Agent: Autonomous AI agent for mobile testing on Android. It receives objectives and steps in natural language, analyzes the app's UI, and executes actions automatically without manually writing selectors.
 
+## Documentation
+
+Extended documentation for non-technical users is available in `docs/`:
+
+- [Quick Start](docs/01-quick-start.md) - Run your first test in 5 minutes
+- [Glossary](docs/02-glossary.md) - Technical terms explained simply
+- [Windows Installation](docs/03-installation-windows.md) - Step-by-step guide
+- [Ubuntu Installation](docs/04-installation-ubuntu.md) - Step-by-step guide
+- [Prerequisites](docs/05-prerequisites.md) - Required tools and setup
+- [Creating Tests](docs/06-creating-tests.md) - Live coding tutorial
+
 ## Architecture
 
 ```
@@ -15,14 +26,14 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 **Flow:**
 1. Test Runner gets `page_source` (XML) from Appium driver
 2. UIParser parses XML and generates simplified JSON with interactable elements (assigns temporary IDs)
-3. AI Orchestrator sends JSON to LLM, which decides what action to execute
+3. AI Orchestrator converts elements to **TOON format** (30-60% fewer tokens) and sends to LLM
 4. LLM selects element by ID and returns tool to use (e.g., `touch_element_by_id(2)`)
 5. Agent Tools queries UIParser for real XPath by ID, then executes action via Appium
 
 **Key Components:**
-- `src/ui_parser.py` - Transforms raw Appium XML into simplified JSON for LLMs. Maps temporary IDs to XPaths.
+- `src/ui_parser.py` - Transforms raw Appium XML into simplified JSON/TOON for LLMs. Maps temporary IDs to XPaths.
 - `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert)
-- `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic) with function calling for action decisions
+- `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic) with function calling. Uses TOON format for token efficiency.
 - `src/test_runner.py` - Orchestrates test execution with retry system (max 3 attempts per step)
 - `src/config.py` - Environment configuration. Loads `.env` then `.env.local` (override)
 
@@ -75,14 +86,35 @@ adb devices
 - `@pytest.mark.integration` - Integration tests (requires Appium + device)
 - `@pytest.mark.slow` - Long-running tests
 
-## UIParser JSON Format
+## UIParser Output Format
 
+### JSON Format (internal)
 Elements returned by UIParser follow this structure:
 ```json
 {"id": 1, "role": "button|input|checkbox", "label": "text", "checked": null|true|false}
 ```
 
 Label priority: `resource-id` > `content-desc` > `text` > `hint`
+
+### TOON Format (for LLMs)
+For communication with LLMs, UIParser can output in **TOON (Token-Oriented Object Notation)** format, which reduces token consumption by 30-60% compared to JSON.
+
+```toon
+[3	]{id	role	label	checked}:
+  0	button	Login	null
+  1	input	Email	null
+  2	input	Password	null
+```
+
+**Why TOON?**
+- Uses tabular format with headers, reducing repetition
+- Tab-separated values for maximum token efficiency
+- Maintains full data fidelity (lossless)
+- See: https://github.com/toon-format/toon
+
+**Methods:**
+- `parser.elements_to_toon(elements)` - Convert element list to TOON
+- `parser.parse_screen_to_toon(xml)` - Parse XML directly to TOON
 
 ## AI Tools Available
 
