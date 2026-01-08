@@ -286,22 +286,61 @@ def test_login(driver_setup):
 
 ## 🧪 Ejecutar Tests
 
+### Estructura de Tests
+
+```
+tests/
+├── conftest.py              # Configuración compartida (markers, logging)
+├── unit/                    # Tests UNITARIOS (no requieren Appium)
+│   ├── conftest.py          # Fixtures para tests unitarios
+│   ├── test_ui_parser.py    # Tests de UIParser
+│   ├── test_agent_tools.py  # Tests de AppiumSkills (con mocks)
+│   ├── test_ai_orchestrator.py  # Tests de AIOrchestrator (con mocks)
+│   └── test_test_runner.py  # Tests de AITestRunner (con mocks)
+└── specs/                   # Tests E2E/INTEGRACIÓN (requieren Appium + dispositivo)
+    ├── conftest.py          # Fixtures E2E (driver_setup, Allure)
+    ├── test_ui_parser_integration.py
+    └── examples/
+        └── test_example.py
+```
+
+### Comandos de Test
+
 ```bash
-# Todos los tests (recomendado: usar poetry run)
-poetry run pytest
+# ═══════════════════════════════════════════════════════════════
+# TESTS UNITARIOS (rápidos, no requieren Appium ni dispositivo)
+# ═══════════════════════════════════════════════════════════════
+poetry run pytest tests/unit/ -v
 
-# O si ya activaste el entorno virtual:
-pytest
+# Test unitario específico
+poetry run pytest tests/unit/test_agent_tools.py -v
 
-# Tests específicos
-poetry run pytest tests/test_example.py
+# ═══════════════════════════════════════════════════════════════
+# TESTS DE INTEGRACIÓN (requieren Appium + emulador/dispositivo)
+# ═══════════════════════════════════════════════════════════════
+poetry run pytest tests/specs/ -v
 
-# Con verbose
+# ═══════════════════════════════════════════════════════════════
+# TODOS LOS TESTS
+# ═══════════════════════════════════════════════════════════════
 poetry run pytest -v
 
-# Con timeout
+# Con cobertura de código
+poetry run pytest tests/unit/ --cov=src --cov-report=html
+
+# Con timeout (para tests largos)
 poetry run pytest --timeout=300
 ```
+
+### Diferencia entre Unit y Specs
+
+| Característica | `tests/unit/` | `tests/specs/` |
+|---------------|---------------|----------------|
+| Requiere Appium | ❌ No | ✅ Sí |
+| Requiere dispositivo | ❌ No | ✅ Sí |
+| Velocidad | ⚡ Muy rápido | 🐢 Lento |
+| Usa mocks | ✅ Sí | ❌ No (real) |
+| Ideal para | CI/CD, desarrollo | Validación E2E |
 
 > **Nota:** En Windows con Poetry 2.0.0+, es más simple usar `poetry run` antes de cada comando en lugar de activar el entorno manualmente.
 

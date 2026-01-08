@@ -64,9 +64,12 @@ poetry run pytest -m integration
 ```
 tests/
 ├── conftest.py              # Shared config (markers, logging)
-├── unit/                    # Unit tests (no Appium required)
+├── unit/                    # Unit tests (no Appium required, uses mocks)
 │   ├── conftest.py          # Unit test fixtures
-│   └── test_ui_parser.py    # UIParser unit tests
+│   ├── test_ui_parser.py    # UIParser unit tests
+│   ├── test_agent_tools.py  # AppiumSkills unit tests (mocked driver)
+│   ├── test_ai_orchestrator.py  # AIOrchestrator unit tests (mocked LLM APIs)
+│   └── test_test_runner.py  # AITestRunner unit tests (mocked components)
 └── specs/                   # E2E tests (require Appium + device)
     ├── conftest.py          # E2E fixtures (driver_setup, Allure)
     ├── test_ui_parser_integration.py
