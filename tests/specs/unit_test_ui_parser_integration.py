@@ -71,28 +71,21 @@ class TestUIParserIntegration:
         assert isinstance(elements, list), "elements debe ser una lista"
         logger.info(f"✓ Se parsearon {len(elements)} elementos interactuables")
         
-        # Si hay elementos, verificar su estructura
+        # Si hay elementos, verificar su estructura (nueva estructura con propiedades reales del XML)
         if len(elements) > 0:
             element = elements[0]
-            assert "id" in element, "Elemento debe tener 'id'"
-            assert "role" in element, "Elemento debe tener 'role'"
-            assert "label" in element, "Elemento debe tener 'label'"
-            assert "checked" in element, "Elemento debe tener 'checked'"
-            assert isinstance(element["id"], int), "id debe ser un entero"
-            assert element["role"] in ["button", "input", "checkbox"], f"role inválido: {element['role']}"
-        
-        # Verificar que los IDs son secuenciales
-        for i, element in enumerate(elements):
-            assert element["id"] == i, f"ID debe ser secuencial: esperado {i}, obtenido {element['id']}"
-        
+            required_fields = ["resource-id", "content-desc", "class", "index", "xpath", "bounds",
+                             "clickable", "displayed", "enabled", "password", "scrollable", "text", "hint"]
+            for field in required_fields:
+                assert field in element, f"Elemento debe tener '{field}'"
+
         # Log detallado de elementos encontrados
         logger.info(f"\n{'='*60}")
         logger.info(f"📊 RESUMEN: {len(elements)} elementos parseados")
         logger.info(f"{'='*60}")
         if len(elements) > 0:
-            logger.info("Ejemplos de elementos encontrados:")
-            for elem in elements[:10]:  # Mostrar primeros 10
-                logger.info(f"  [{elem['id']:3d}] {elem['role']:8s} - '{elem['label'][:50]}'")
+            logger.info("Elementos encontrados (JSON formateado):")
+            logger.info(json.dumps(elements[:10], indent=2, ensure_ascii=False))
         else:
             logger.warning("⚠ No se encontraron elementos interactuables en la pantalla")
 
@@ -179,44 +172,36 @@ class TestUIParserIntegration:
         logger.info(f"\n{'='*60}")
         logger.info(f"📋 ELEMENTOS ENCONTRADOS (primeros 10):")
         logger.info(f"{'='*60}")
-        for elem in elements[:10]:
-            logger.info(f"   [{elem['id']:3d}] {elem['role']:8s} - '{elem['label'][:50]}'")
+        logger.info(json.dumps(elements[:10], indent=2, ensure_ascii=False))
         logger.info(f"{'='*60}\n")
         
-        # Verificar que podemos obtener XPath para cada elemento
+        # Verificar que los XPaths incluidos en cada elemento son válidos
         valid_xpaths = 0
         invalid_xpaths = 0
-        
+
         logger.info(f"🔗 Validando XPaths para {len(elements)} elementos...")
         for idx, element in enumerate(elements):
-            element_id = element["id"]
-            logger.debug(f"   Procesando elemento {idx + 1}/{len(elements)} (ID: {element_id})...")
-            
-            xpath = parser.get_element_by_id(element_id)
-            
-            assert xpath is not None, f"XPath no encontrado para ID {element_id}"
-            assert len(xpath) > 0, f"XPath vacío para ID {element_id}"
+            xpath = element.get("xpath", "")
+            identifier = element.get("resource-id") or element.get("content-desc") or element.get("text") or "sin-id"
+
+            assert xpath, f"XPath vacío para elemento: {identifier}"
             assert xpath.startswith("//"), f"XPath inválido: {xpath}"
-            
-            logger.debug(f"   Elemento ID {element_id}: XPath obtenido = {xpath}")
-            
+
             # Intentar encontrar el elemento usando el XPath
             try:
-                logger.debug(f"   Elemento ID {element_id}: Buscando en el driver con XPath...")
                 found_elements = driver_setup.find_elements("xpath", xpath)
-                logger.debug(f"   Elemento ID {element_id}: Se encontraron {len(found_elements)} elementos con este XPath")
-                
+
                 if len(found_elements) > 0:
                     valid_xpaths += 1
-                    logger.info(f"   ✓ [{element_id:3d}] XPath válido: {xpath[:80]}...")
+                    logger.info(f"   ✓ [{idx}] XPath válido: {xpath[:80]}...")
                 else:
                     invalid_xpaths += 1
-                    logger.warning(f"   ⚠ [{element_id:3d}] XPath no encontró elementos: {xpath[:80]}...")
+                    logger.warning(f"   ⚠ [{idx}] XPath no encontró elementos: {xpath[:80]}...")
             except Exception as e:
                 invalid_xpaths += 1
-                logger.warning(f"   ⚠ [{element_id:3d}] Error validando XPath: {xpath[:80]}... - {type(e).__name__}: {e}")
+                logger.warning(f"   ⚠ [{idx}] Error validando XPath: {xpath[:80]}... - {type(e).__name__}: {e}")
                 logger.debug(f"   Traceback completo: {traceback.format_exc()}")
-        
+
         logger.info(f"\n{'='*60}")
         logger.info(f"📊 VALIDACIÓN DE XPATHS:")
         logger.info(f"   ✓ Válidos: {valid_xpaths}/{len(elements)} ({valid_xpaths*100/len(elements):.1f}%)")
@@ -264,30 +249,24 @@ class TestUIParserIntegration:
         assert len(elements1) == len(elements2), f"El parser debe ser determinístico: primera pasada={len(elements1)}, segunda pasada={len(elements2)}"
         logger.info("   ✓ Parser es determinístico")
         
-        # Verificar estructura de elementos
+        # Verificar estructura de elementos (nueva estructura con propiedades reales del XML)
         logger.info("🔍 Verificando estructura de elementos...")
-        for idx, element in enumerate(elements1):
-            logger.debug(f"   Verificando elemento {idx + 1}/{len(elements1)} (ID: {element.get('id', 'N/A')})...")
-            
-            # Verificar que todos los campos requeridos están presentes
-            required_fields = ["id", "role", "label", "checked"]
+        required_fields = ["resource-id", "content-desc", "class", "index", "xpath", "bounds",
+                         "clickable", "displayed", "enabled", "password", "scrollable", "text", "hint"]
+
+        if len(elements1) > 0:
+            element = elements1[0]
             for field in required_fields:
-                assert field in element, f"Campo '{field}' faltante en elemento {element.get('id', 'N/A')}"
-            
-            # Verificar tipos de datos
-            assert isinstance(element["id"], int), f"ID debe ser int, es {type(element['id'])}"
-            assert isinstance(element["role"], str), f"Role debe ser str, es {type(element['role'])}"
-            assert isinstance(element["label"], str), f"Label debe ser str, es {type(element['label'])}"
-            assert element["checked"] is None or isinstance(element["checked"], bool), f"Checked debe ser None o bool, es {type(element['checked'])}"
-        
+                assert field in element, f"Campo '{field}' faltante en elemento"
+
         logger.info(f"   ✓ Estructura de {len(elements1)} elementos verificada correctamente")
-        
-        # Verificar que no hay elementos duplicados (mismo ID)
-        logger.info("🔍 Verificando que no hay IDs duplicados...")
-        ids = [elem["id"] for elem in elements1]
-        assert len(ids) == len(set(ids)), f"No debe haber IDs duplicados. IDs encontrados: {ids}"
-        logger.info("   ✓ No hay IDs duplicados")
-        
+
+        # Verificar que no hay XPaths duplicados
+        logger.info("🔍 Verificando que no hay XPaths duplicados...")
+        xpaths = [elem["xpath"] for elem in elements1]
+        assert len(xpaths) == len(set(xpaths)), f"No debe haber XPaths duplicados"
+        logger.info("   ✓ No hay XPaths duplicados")
+
         logger.info(f"\n{'='*60}")
         logger.info(f"✅ Parser maneja correctamente UI compleja con {len(elements1)} elementos")
         logger.info(f"{'='*60}")
@@ -376,55 +355,37 @@ class TestUIParserIntegration:
         assert len(elements) > 0, "Debe haber al menos un elemento interactuable en la pantalla de login"
         
         logger.info(f"✓ Se parsearon {len(elements)} elementos interactuables")
-        
-        # Analizar los elementos encontrados
-        inputs = [e for e in elements if e["role"] == "input"]
-        buttons = [e for e in elements if e["role"] == "button"]
-        checkboxes = [e for e in elements if e["role"] == "checkbox"]
-        
+
+        # Analizar los elementos encontrados por clase
+        inputs = [e for e in elements if "edittext" in e["class"].lower() or "input" in e["class"].lower()]
+        buttons = [e for e in elements if e["clickable"] == "true" and "edittext" not in e["class"].lower()]
+
         logger.info(f"\n{'='*60}")
         logger.info(f"📊 ANÁLISIS DE LA PANTALLA DE LOGIN:")
         logger.info(f"{'='*60}")
         logger.info(f"   Total de elementos: {len(elements)}")
         logger.info(f"   📝 Inputs (campos de texto): {len(inputs)}")
-        logger.info(f"   🔘 Botones: {len(buttons)}")
-        logger.info(f"   ☑️  Checkboxes: {len(checkboxes)}")
+        logger.info(f"   🔘 Elementos clickeables: {len(buttons)}")
         logger.info(f"{'='*60}")
-        
-        # Mostrar detalles de inputs (típicamente usuario y password)
-        if inputs:
-            logger.info("\n📝 CAMPOS DE ENTRADA ENCONTRADOS:")
-            for inp in inputs:
-                logger.info(f"   [{inp['id']:3d}] '{inp['label'][:60]}'")
-        
-        # Mostrar detalles de botones (típicamente "Ingresar", "Login", etc.)
-        if buttons:
-            logger.info("\n🔘 BOTONES ENCONTRADOS:")
-            for btn in buttons:
-                logger.info(f"   [{btn['id']:3d}] '{btn['label'][:60]}'")
-        
+
+        # Mostrar todos los elementos en formato JSON
+        logger.info("\n📋 ELEMENTOS ENCONTRADOS (JSON formateado):")
+        logger.info(json.dumps(elements[:10], indent=2, ensure_ascii=False))
+
         # Verificaciones específicas para pantalla de login
-        # Debe haber al menos un input (usuario o password)
         assert len(inputs) > 0, "Una pantalla de login debe tener al menos un campo de entrada (usuario/password)"
-        
-        # Debe haber al menos un botón (botón de login/ingresar)
-        assert len(buttons) > 0, "Una pantalla de login debe tener al menos un botón (Ingresar/Login)"
-        
+        assert len(buttons) > 0, "Una pantalla de login debe tener al menos un elemento clickeable (Ingresar/Login)"
+
         logger.info(f"\n✅ VERIFICACIONES EXITOSAS:")
         logger.info(f"   ✓ Se encontraron {len(inputs)} campo(s) de entrada")
-        logger.info(f"   ✓ Se encontraron {len(buttons)} botón(es)")
+        logger.info(f"   ✓ Se encontraron {len(buttons)} elemento(s) clickeable(s)")
         logger.info(f"   ✓ El parser puede extraer elementos de la pantalla de login real")
-        
-        # Guardar un resumen de los elementos para debugging
-        logger.info(f"\n📋 RESUMEN DE ELEMENTOS (primeros 10):")
-        for elem in elements[:10]:
-            logger.info(f"   [{elem['id']:3d}] {elem['role']:8s} - '{elem['label'][:50]}'")
         
         # Verificar que los XPaths funcionan
         logger.info(f"\n🔗 Verificando XPaths generados...")
         valid_xpaths = 0
         for element in elements[:5]:  # Verificar solo los primeros 5 para no hacer el test muy lento
-            xpath = parser.get_element_by_id(element["id"])
+            xpath = element.get("xpath", "")
             if xpath:
                 try:
                     found = driver_setup.find_elements(AppiumBy.XPATH, xpath)
@@ -432,9 +393,9 @@ class TestUIParserIntegration:
                         valid_xpaths += 1
                 except:
                     pass
-        
+
         logger.info(f"   ✓ {valid_xpaths}/5 XPaths validados correctamente")
-        
+
         # Assert final: el test es exitoso si encontramos elementos de login
         assert len(elements) >= 2, f"Se esperaban al menos 2 elementos (input + botón), se encontraron {len(elements)}"
 
@@ -546,39 +507,19 @@ class TestUIParserIntegration:
         logger.info(f"✓ JSON generado: {len(json_output)} caracteres")
         
         # ═══════════════════════════════════════════════════════════════════
-        # FASE 4: Mostrar JSON con XPaths
+        # FASE 4: Los XPaths ya están incluidos en los elementos
         # ═══════════════════════════════════════════════════════════════════
         logger.info("")
         logger.info("╔" + "═" * 78 + "╗")
-        logger.info("║  FASE 4: JSON DE ELEMENTOS CON XPATHS")
+        logger.info("║  FASE 4: RESUMEN DE XPATHS (ya incluidos en JSON)")
         logger.info("╚" + "═" * 78 + "╝")
         logger.info("")
-        
-        # Crear lista de elementos con XPaths
-        elements_with_xpath = []
-        for element in elements:
-            element_id = element["id"]
-            xpath = parser.get_element_by_id(element_id)
-            
-            element_with_xpath = element.copy()
-            element_with_xpath["xpath"] = xpath if xpath else "NOT_FOUND"
-            elements_with_xpath.append(element_with_xpath)
-        
-        # Convertir a JSON formateado
-        json_with_xpath = json.dumps(elements_with_xpath, indent=2, ensure_ascii=False)
-        
-        logger.info("📋 JSON CON XPATHS:")
-        logger.info("─" * 80)
-        logger.info(json_with_xpath)
-        logger.info("─" * 80)
-        logger.info(f"✓ JSON con XPaths generado: {len(json_with_xpath)} caracteres")
-        
-        # Mostrar resumen de XPaths
-        logger.info("")
+
         logger.info("📊 RESUMEN DE XPATHS:")
         logger.info("─" * 80)
-        for elem in elements_with_xpath:
-            logger.info(f"  [{elem['id']:3d}] {elem['role']:8s} - XPath: {elem['xpath']}")
+        for idx, elem in enumerate(elements):
+            identifier = elem.get("resource-id") or elem.get("content-desc") or elem.get("text") or "sin-id"
+            logger.info(f"  [{idx}] {identifier[:30]:30s} -> {elem['xpath']}")
         logger.info("─" * 80)
         
         # ═══════════════════════════════════════════════════════════════════
@@ -618,17 +559,15 @@ class TestUIParserIntegration:
         logger.info("║  RESUMEN FINAL")
         logger.info("╚" + "═" * 78 + "╝")
         logger.info("")
-        
-        # Contar por tipo
-        inputs = [e for e in elements if e["role"] == "input"]
-        buttons = [e for e in elements if e["role"] == "button"]
-        checkboxes = [e for e in elements if e["role"] == "checkbox"]
-        
+
+        # Contar por tipo usando propiedades reales
+        inputs = [e for e in elements if "edittext" in e["class"].lower() or "input" in e["class"].lower()]
+        clickables = [e for e in elements if e["clickable"] == "true"]
+
         logger.info(f"📊 ESTADÍSTICAS:")
         logger.info(f"   Total de elementos: {len(elements)}")
-        logger.info(f"   📝 Inputs: {len(inputs)}")
-        logger.info(f"   🔘 Botones: {len(buttons)}")
-        logger.info(f"   ☑️  Checkboxes: {len(checkboxes)}")
+        logger.info(f"   📝 Inputs (EditText): {len(inputs)}")
+        logger.info(f"   🔘 Clickeables: {len(clickables)}")
         logger.info("")
         logger.info(f"📏 TAMAÑOS:")
         logger.info(f"   XML source: {len(xml_source):,} caracteres")

@@ -25,13 +25,13 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 
 **Flow:**
 1. Test Runner gets `page_source` (XML) from Appium driver
-2. UIParser parses XML and generates simplified JSON with interactable elements (assigns temporary IDs)
+2. UIParser parses XML and extracts interactable elements with their real Android properties
 3. AI Orchestrator converts elements to **TOON format** (30-60% fewer tokens) and sends to LLM
-4. LLM selects element by ID and returns tool to use (e.g., `touch_element_by_id(2)`)
-5. Agent Tools queries UIParser for real XPath by ID, then executes action via Appium
+4. LLM selects element by XPath and returns tool to use (e.g., `touch_element_by_xpath(xpath)`)
+5. Agent Tools executes action via Appium using the XPath
 
 **Key Components:**
-- `src/ui_parser.py` - Transforms raw Appium XML into simplified JSON/TOON for LLMs. Maps temporary IDs to XPaths.
+- `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs.
 - `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert)
 - `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic) with function calling. Uses TOON format for token efficiency.
 - `src/test_runner.py` - Orchestrates test execution with retry system (max 3 attempts per step)
@@ -118,21 +118,38 @@ adb devices
 ## UIParser Output Format
 
 ### JSON Format (internal)
-Elements returned by UIParser follow this structure:
+Elements returned by UIParser contain real Android XML properties in this order:
 ```json
-{"id": 1, "role": "button|input|checkbox", "label": "text", "checked": null|true|false}
+{
+  "resource-id": "com.example:id/button",
+  "content-desc": "Submit button",
+  "class": "android.widget.Button",
+  "index": "0",
+  "xpath": "//android.widget.Button[@index='0']",
+  "bounds": "[0,100][720,200]",
+  "clickable": "true",
+  "displayed": "true",
+  "enabled": "true",
+  "password": "false",
+  "scrollable": "false",
+  "text": "Submit",
+  "hint": ""
+}
 ```
 
-Label priority: `resource-id` > `content-desc` > `text` > `hint`
+**Inclusion Criteria (focusable="true" is REQUIRED):**
+- `clickable="true"` with useful info (text, content-desc, or resource-id)
+- `EditText` elements (inputs) - always included
+- `ImageView` + clickable (image buttons) - always included
 
 ### TOON Format (for LLMs)
 For communication with LLMs, UIParser can output in **TOON (Token-Oriented Object Notation)** format, which reduces token consumption by 30-60% compared to JSON.
 
 ```toon
-[3	]{id	role	label	checked}:
-  0	button	Login	null
-  1	input	Email	null
-  2	input	Password	null
+[3	]{resource-id	content-desc	class	index	xpath	bounds	clickable	displayed	enabled	password	scrollable	text	hint}:
+  com.example:id/login		android.widget.Button	0	//android.widget.Button[@index='0']	[0,100][720,200]	true	true	true	false	false	Login
+  com.example:id/email		android.widget.EditText	1	//android.widget.EditText[@index='1']	[0,200][720,300]	true	true	true	false	false		Enter email
+  com.example:id/password		android.widget.EditText	2	//android.widget.EditText[@index='2']	[0,300][720,400]	true	true	true	true	false		Enter password
 ```
 
 **Why TOON?**
@@ -150,8 +167,8 @@ For communication with LLMs, UIParser can output in **TOON (Token-Oriented Objec
 The LLM can use these tools via function calling:
 
 ### UI Interaction Tools
-- `touch_element_by_id(element_id)` - Click element
-- `fill_field_by_id(element_id, value)` - Type text in input
+- `touch_element_by_xpath(xpath)` - Click element
+- `fill_field_by_xpath(xpath, value)` - Type text in input
 - `scroll(direction)` - Scroll up/down
 - `go_back()` - Press back button
 - `assert_screen_contains(text)` - Verify text presence

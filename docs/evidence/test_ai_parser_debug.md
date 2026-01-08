@@ -1,127 +1,60 @@
-# Ejecución de un test unitario
+# Ejecución: UIParser AI Debug Test
+
+Test completo que demuestra el flujo de transformación de XML → JSON → TOON para procesamiento de IA.
+
+---
+
+## 📋 Comando Ejecutado
 
 ```bash
-USER@DESKTOP-0KP4BHJ MINGW64 /d/Imagine/qa_movil_agent (main)
-$ poetry run pytest tests/specs/unit_test_ui_parser_integration.py::TestUIParserIntegration::test_ai_parser_debug -v
-================================ test session starts ================================
-platform win32 -- Python 3.13.2, pytest-8.3.5, pluggy-1.5.0 -- C:\Users\USER\AppData\Local\pypoetry\Cache\virtualenvs\qa-movil-agent-XcYuopvM-py3.13\Scripts\python.exe
-cachedir: .pytest_cache
-metadata: {'Python': '3.13.2', 'Platform': 'Windows-11-10.0.26200-SP0', 'Packages': {'pytest': '8.3.5', 'pluggy': '1.5.0'}, 'Plugins': {'allure-pytest': '2.15.3', 'anyio': '4.5.2', 'html': '4.1.1', 'metadata': '3.1.1', 'timeout': '2.4.0'}, 'JAVA_HOME': 'D:\\Programas instalados\\java\\jdk-22'}
-rootdir: D:\Imagine\qa_movil_agent
-configfile: pytest.ini
-plugins: allure-pytest-2.15.3, anyio-4.5.2, html-4.1.1, metadata-3.1.1, timeout-2.4.0
-timeout: 300.0s
-timeout method: thread
-timeout func_only: False
-collected 1 item                                                                     
-
-tests/specs/unit_test_ui_parser_integration.py::TestUIParserIntegration::test_ai_parser_debug 
----------------------------------- live log setup -----------------------------------
-2026-01-08 16:03:37.180 - tests.specs.conftest - INFO - 
-2026-01-08 16:03:37.180 - tests.specs.conftest - INFO - ████████████████████████████████████████████████████████████████████████████████
-2026-01-08 16:03:37.180 - tests.specs.conftest - INFO - █  CONFTEST: INICIANDO FIXTURE driver_setup
-2026-01-08 16:03:37.181 - tests.specs.conftest - INFO - ████████████████████████████████████████████████████████████████████████████████
-2026-01-08 16:03:37.181 - tests.specs.conftest - INFO -
-2026-01-08 16:03:37.181 - tests.specs.conftest - INFO - CONFTEST: FASE 1 - Verificando Appium Server...
-2026-01-08 16:03:37.181 - tests.specs.conftest - INFO - ======================================================================
-2026-01-08 16:03:37.182 - tests.specs.conftest - INFO - CONFTEST: Verificando disponibilidad del servidor Appium...
-2026-01-08 16:03:37.182 - tests.specs.conftest - INFO - ======================================================================
-2026-01-08 16:03:39.266 - tests.specs.conftest - INFO - CONFTEST: Appium version: 3.1.1
-2026-01-08 16:03:39.266 - tests.specs.conftest - INFO - CONFTEST: ✓ Appium Server disponible en http://localhost:4723
-2026-01-08 16:03:39.267 - tests.specs.conftest - INFO -
-2026-01-08 16:03:39.267 - tests.specs.conftest - INFO - CONFTEST: FASE 2 - Configurando capabilities...
-2026-01-08 16:03:39.267 - src.config - INFO - ======================================================================
-2026-01-08 16:03:39.267 - src.config - INFO - CONFIG DEBUG: Estado actual de la configuración
-2026-01-08 16:03:39.268 - src.config - INFO - ======================================================================
-2026-01-08 16:03:39.268 - src.config - INFO -   OPENAI_API_KEY: ✓ Configurada
-2026-01-08 16:03:39.268 - src.config - INFO -   ANTHROPIC_API_KEY: ✓ Configurada      
-2026-01-08 16:03:39.268 - src.config - INFO -   AI_PROVIDER: openai
-2026-01-08 16:03:39.269 - src.config - INFO -   OPENAI_MODEL: gpt-4o
-2026-01-08 16:03:39.269 - src.config - INFO -   ANTHROPIC_MODEL: claude-3-5-sonnet-20241022
-2026-01-08 16:03:39.269 - src.config - INFO - ----------------------------------------
-2026-01-08 16:03:39.269 - src.config - INFO -   APPIUM_SERVER_URL: http://localhost:4723
-2026-01-08 16:03:39.269 - src.config - INFO -   ANDROID_PLATFORM_NAME: Android        
-2026-01-08 16:03:39.270 - src.config - INFO -   ANDROID_DEVICE_NAME: emulator-5554    
-2026-01-08 16:03:39.270 - src.config - INFO -   ANDROID_APP_PACKAGE: com.imagineapps.gofixiicliente
-2026-01-08 16:03:39.270 - src.config - INFO -   ANDROID_APP_ACTIVITY: .MainActivity   
-2026-01-08 16:03:39.270 - src.config - INFO -   ANDROID_APP_PATH: D:/Imagine/qa_movil_agent/apks/2026-01-05-cliente.apk
-2026-01-08 16:03:39.271 - src.config - INFO -   ANDROID_UDID: emulator-5554
-2026-01-08 16:03:39.271 - src.config - INFO -   ANDROID_AUTOMATION_NAME: UiAutomator2 
-2026-01-08 16:03:39.271 - src.config - INFO - ----------------------------------------
-2026-01-08 16:03:39.271 - src.config - INFO -   AUTO_GRANT_PERMISSIONS: True
-2026-01-08 16:03:39.271 - src.config - INFO -   IGNORE_HIDDEN_API_ERROR: True
-2026-01-08 16:03:39.272 - src.config - INFO -   DISABLE_WINDOW_ANIMATION: True        
-2026-01-08 16:03:39.272 - src.config - INFO - ----------------------------------------
-2026-01-08 16:03:39.272 - src.config - INFO -   DEFAULT_WAIT_TIMEOUT: 10 minutos (600 segundos)
-2026-01-08 16:03:39.272 - src.config - INFO -   IMPLICIT_WAIT: 5 segundos
-2026-01-08 16:03:39.272 - src.config - INFO - ----------------------------------------
-2026-01-08 16:03:39.272 - src.config - INFO -   UI Stability (pantallas de carga):    
-2026-01-08 16:03:39.273 - src.config - INFO -     UI_STABILITY_TIMEOUT: 10.0s
-2026-01-08 16:03:39.273 - src.config - INFO -     UI_STABILITY_INTERVAL: 0.3s
-2026-01-08 16:03:39.273 - src.config - INFO -     UI_STABILITY_THRESHOLD: 2 checks    
-2026-01-08 16:03:39.273 - src.config - INFO - ======================================================================
-2026-01-08 16:03:39.275 - tests.specs.conftest - INFO - CONFTEST: 📱 Capabilities configuradas:
-2026-01-08 16:03:39.275 - tests.specs.conftest - INFO - CONFTEST:    platformName: Android
-2026-01-08 16:03:39.275 - tests.specs.conftest - INFO - CONFTEST:    appium:automationName: UiAutomator2
-2026-01-08 16:03:39.275 - tests.specs.conftest - INFO - CONFTEST:    appium:deviceName: emulator-5554
-2026-01-08 16:03:39.275 - tests.specs.conftest - INFO - CONFTEST:    appium:newCommandTimeout: 600
-2026-01-08 16:03:39.276 - tests.specs.conftest - INFO - CONFTEST:    appium:udid: emulator-5554
-2026-01-08 16:03:39.276 - tests.specs.conftest - INFO - CONFTEST:    appium:app: D:/Imagine/qa_movil_agent/apks/2026-01-05-cliente.apk
-2026-01-08 16:03:39.276 - tests.specs.conftest - INFO - CONFTEST:    appium:appPackage: com.imagineapps.gofixiicliente
-2026-01-08 16:03:39.276 - tests.specs.conftest - INFO - CONFTEST:    appium:appActivity: .MainActivity
-2026-01-08 16:03:39.276 - tests.specs.conftest - INFO - CONFTEST:    appium:autoGrantPermissions: True
-2026-01-08 16:03:39.276 - tests.specs.conftest - INFO - CONFTEST:    appium:ignoreHiddenApiPolicyError: True
-2026-01-08 16:03:39.277 - tests.specs.conftest - INFO - CONFTEST:    appium:disableWindowAnimation: True
-2026-01-08 16:03:39.277 - tests.specs.conftest - INFO - CONFTEST:    appium:skipDeviceInitialization: False
-2026-01-08 16:03:39.277 - tests.specs.conftest - INFO - CONFTEST:    appium:disableSuppressAccessibilityService: True
-2026-01-08 16:03:39.277 - tests.specs.conftest - INFO -
-2026-01-08 16:03:39.277 - tests.specs.conftest - INFO - CONFTEST: FASE 3 - Creando UiAutomator2Options...
-2026-01-08 16:03:39.278 - tests.specs.conftest - INFO - CONFTEST: ✓ Options creadas   
-2026-01-08 16:03:39.278 - tests.specs.conftest - INFO -
-2026-01-08 16:03:39.279 - tests.specs.conftest - INFO - CONFTEST: FASE 4 - Inicializando driver de Appium...
-2026-01-08 16:03:39.279 - tests.specs.conftest - INFO - CONFTEST: 🚀 Conectando a http://localhost:4723...
-2026-01-08 16:03:47.870 - tests.specs.conftest - INFO - CONFTEST: ✓ Driver creado en 8.59s
-2026-01-08 16:03:47.870 - tests.specs.conftest - INFO - CONFTEST: Session ID: 5a7a57ce-9f8f-48d3-8877-630e5003b9ce
-2026-01-08 16:03:47.875 - tests.specs.conftest - INFO -
-2026-01-08 16:03:47.876 - tests.specs.conftest - INFO - CONFTEST: FASE 5 - Obteniendo información del dispositivo...
-2026-01-08 16:03:47.948 - tests.specs.conftest - INFO - CONFTEST: Device time: 2026-01-08T21:02:22+00:00
-2026-01-08 16:03:47.960 - tests.specs.conftest - INFO - CONFTEST: Window size: 1080x2400
-2026-01-08 16:03:47.960 - tests.specs.conftest - INFO - CONFTEST: Platform: Android   
-2026-01-08 16:03:47.960 - tests.specs.conftest - INFO - CONFTEST: Platform Version: 16
-2026-01-08 16:03:47.960 - tests.specs.conftest - INFO - CONFTEST: Device Name: emulator-5554
-2026-01-08 16:03:47.960 - tests.specs.conftest - INFO - CONFTEST: Device UDID: emulator-5554
-2026-01-08 16:03:47.961 - tests.specs.conftest - INFO - CONFTEST: App Package: com.imagineapps.gofixiicliente
-2026-01-08 16:03:47.961 - tests.specs.conftest - INFO - CONFTEST: App Activity: .MainActivity
-2026-01-08 16:03:47.961 - tests.specs.conftest - INFO - CONFTEST: ✓ Driver inicializado correctamente
-2026-01-08 16:03:47.961 - tests.specs.conftest - INFO -
-2026-01-08 16:03:47.961 - tests.specs.conftest - INFO - CONFTEST: ✅ Fixture setup completado en 10.78s
-2026-01-08 16:03:47.962 - tests.specs.conftest - INFO - ================================================================================
-2026-01-08 16:03:47.962 - tests.specs.conftest - INFO -
------------------------------------ live log call ----------------------------------- 
-2026-01-08 16:03:47.963 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:03:47.964 - tests.specs.unit_test_ui_parser_integration - INFO - ================================================================================
-2026-01-08 16:03:47.964 - tests.specs.unit_test_ui_parser_integration - INFO - 🔍 TEST DE DEPURACIÓN COMPLETO PARA PARSER DE IA
-2026-01-08 16:03:47.964 - tests.specs.unit_test_ui_parser_integration - INFO - ================================================================================
-2026-01-08 16:03:47.964 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:03:47.964 - tests.specs.unit_test_ui_parser_integration - INFO - 📱 Esperando a que la app cargue completamente...
-2026-01-08 16:03:47.965 - tests.specs.unit_test_ui_parser_integration - INFO -    Esperando 12 segundos para que la app inicie...
-2026-01-08 16:04:00.343 - tests.specs.conftest - INFO - 📸 Screenshot adjuntado a Allure: 01_ai_parser_debug_inicial
-2026-01-08 16:04:00.343 - tests.specs.unit_test_ui_parser_integration - INFO - 
-2026-01-08 16:04:00.343 - tests.specs.unit_test_ui_parser_integration - INFO - ╔══════════════════════════════════════════════════════════════════════════════╗
-2026-01-08 16:04:00.343 - tests.specs.unit_test_ui_parser_integration - INFO - ║  FASE 1: OBTENER XML SOURCE
-2026-01-08 16:04:00.344 - tests.specs.unit_test_ui_parser_integration - INFO - ╚══════════════════════════════════════════════════════════════════════════════╝
-2026-01-08 16:04:00.344 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.344 - tests.specs.unit_test_ui_parser_integration - INFO - 📱 Obteniendo page_source del driver...
-2026-01-08 16:04:00.401 - tests.specs.unit_test_ui_parser_integration - INFO - ✓ XML obtenido: 9304 caracteres
-2026-01-08 16:04:00.401 - tests.specs.unit_test_ui_parser_integration - INFO - 
-2026-01-08 16:04:00.402 - tests.specs.unit_test_ui_parser_integration - INFO - 📄 XML SOURCE (FORMATEADO):
-2026-01-08 16:04:00.402 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.435 - tests.specs.unit_test_ui_parser_integration - INFO - 
+poetry run pytest tests/specs/unit_test_ui_parser_integration.py::TestUIParserIntegration::test_ai_parser_debug -v
 ```
+
+---
+
+## 🔧 Setup y Configuración
+
+### Información del Entorno
+
+```bash
+Platform:        win32 - Python 3.13.2
+Pytest:          8.3.5
+Appium:          3.1.1
+Session ID:      1fea84b8-0cba-4c61-b5fd-2292709b6676
+Device time:     2026-01-08T22:16:46+00:00
+Window size:     1080x2400 (Android)
+```
+
+### Configuración de Appium
+
+| Propiedad | Valor |
+| --- | --- |
+| **Platform** | Android |
+| **Automation** | UiAutomator2 |
+| **Device** | emulator-5554 |
+| **App Package** | com.imagineapps.gofixiicliente |
+| **Activity** | .MainActivity |
+| **Timeout** | 600s (10 min) |
+
+---
+
+## ⏱️ Tiempos de Ejecución
+
+| Fase | Duración |
+| --- | --- |
+| Setup fixture | 16.59s |
+| Espera de app | 12s |
+| Test execution | 29.67s **TOTAL** |
+
+---
+
+## 📄 FASE 1: XML Source (Raw Appium)
+
+**Estado:** ✓ XML obtenido (9,304 caracteres)
 
 ```xml
 <?xml version="1.0" ?>
-<hierarchy index="0" class="hierarchy" rotation="0" width="1080" height="2400">       
+<hierarchy index="0" class="hierarchy" rotation="0" width="1080" height="2400">
   <android.widget.FrameLayout index="0" package="com.imagineapps.gofixiicliente" class="android.widget.FrameLayout" text="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" long-clickable="false" password="false" scrollable="false" selected="false" bounds="[0,0][1080,2400]" displayed="true">
     <android.widget.LinearLayout index="0" package="com.imagineapps.gofixiicliente" class="android.widget.LinearLayout" text="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" long-clickable="false" password="false" scrollable="false" selected="false" bounds="[0,0][1080,2400]" displayed="true">
       <android.widget.FrameLayout index="0" package="com.imagineapps.gofixiicliente" class="android.widget.FrameLayout" text="" resource-id="android:id/content" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" long-clickable="false" password="false" scrollable="false" selected="false" bounds="[0,0][1080,2400]" displayed="true">
@@ -159,208 +92,202 @@ tests/specs/unit_test_ui_parser_integration.py::TestUIParserIntegration::test_ai
 </hierarchy>
 ```
 
-```bash
-2026-01-08 16:04:00.436 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.436 - tests.specs.unit_test_ui_parser_integration - INFO - ✓ XML formateado: 9222 caracteres
-2026-01-08 16:04:00.437 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.437 - tests.specs.unit_test_ui_parser_integration - INFO - ╔══════════════════════════════════════════════════════════════════════════════╗
-2026-01-08 16:04:00.437 - tests.specs.unit_test_ui_parser_integration - INFO - ║  FASE 2: PARSEAR CON UIPARSER
-2026-01-08 16:04:00.437 - tests.specs.unit_test_ui_parser_integration - INFO - ╚══════════════════════════════════════════════════════════════════════════════╝
-2026-01-08 16:04:00.437 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.437 - tests.specs.unit_test_ui_parser_integration - INFO - 🔍 Creando instancia de UIParser...
-2026-01-08 16:04:00.438 - tests.specs.unit_test_ui_parser_integration - INFO - 🔍 Parseando XML con UIParser...
-2026-01-08 16:04:00.441 - src.ui_parser - INFO - UIPARSER: Parseo completado
-2026-01-08 16:04:00.441 - src.ui_parser - INFO -   - Nodos visitados: 24
-2026-01-08 16:04:00.441 - src.ui_parser - INFO -   - Elementos interactuables encontrados: 6
-2026-01-08 16:04:00.442 - src.ui_parser - INFO -   - Elementos filtrados: 18
-2026-01-08 16:04:00.442 - tests.specs.unit_test_ui_parser_integration - INFO - ✓ Se parsearon 6 elementos interactuables
-2026-01-08 16:04:00.443 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.443 - tests.specs.unit_test_ui_parser_integration - INFO - ╔══════════════════════════════════════════════════════════════════════════════╗
-2026-01-08 16:04:00.443 - tests.specs.unit_test_ui_parser_integration - INFO - ║  FASE 3: JSON DE ELEMENTOS PARSEADOS (FORMATEADO)
-2026-01-08 16:04:00.443 - tests.specs.unit_test_ui_parser_integration - INFO - ╚══════════════════════════════════════════════════════════════════════════════╝
-2026-01-08 16:04:00.443 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.444 - tests.specs.unit_test_ui_parser_integration - INFO - 📋 JSON COMPLETO DE ELEMENTOS:
-2026-01-08 16:04:00.444 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.444 - tests.specs.unit_test_ui_parser_integration - INFO - 
-```
+**Análisis:**
+
+- Nodos visitados: 24
+- Elementos filtrados: 18
+
+---
+
+## 🔍 FASE 2: Parseo UIParser
+
+**Estado:** ✓ Se parsearon 6 elementos interactuables
+
+| Métrica | Valor |
+| --- | --- |
+| Nodos visitados | 24 |
+| Elementos interactuables | 6 |
+| Elementos filtrados | 18 |
+
+---
+
+## 📋 FASE 3: JSON (Formato Interno)
+
+**Estado:** ✓ JSON generado (2,264 caracteres)
 
 ```json
-[      
+[
   {
-    "id": 0,
-    "role": "button",
-    "label": "Iniciar sesión",
-    "checked": null
+    "resource-id": "",
+    "content-desc": "Iniciar sesión",
+    "class": "android.view.View",
+    "index": "0",
+    "xpath": "//android.view.View[@content-desc=\"Iniciar sesión\"]",
+    "bounds": "[0,0][1080,2400]",
+    "clickable": "true",
+    "displayed": "true",
+    "enabled": "true",
+    "password": "false",
+    "scrollable": "false",
+    "text": "",
+    "hint": ""
   },
   {
-    "id": 1,
-    "role": "input",
-    "label": "Ejemplo@mail.com",
-    "checked": null
+    "resource-id": "",
+    "content-desc": "",
+    "class": "android.widget.EditText",
+    "index": "4",
+    "xpath": "//android.widget.EditText",
+    "bounds": "[53,824][1028,950]",
+    "clickable": "true",
+    "displayed": "true",
+    "enabled": "true",
+    "password": "false",
+    "scrollable": "false",
+    "text": "",
+    "hint": "Ejemplo@mail.com"
   },
   {
-    "id": 2,
-    "role": "button",
-    "label": "**********",
-    "checked": null
+    "resource-id": "",
+    "content-desc": "**********",
+    "class": "android.view.View",
+    "index": "6",
+    "xpath": "//android.view.View[@content-desc=\"**********\"]",
+    "bounds": "[53,1103][1028,1229]",
+    "clickable": "true",
+    "displayed": "true",
+    "enabled": "true",
+    "password": "false",
+    "scrollable": "false",
+    "text": "",
+    "hint": ""
   },
   {
-    "id": 3,
-    "role": "input",
-    "label": "Input field",
-    "checked": null
+    "resource-id": "",
+    "content-desc": "",
+    "class": "android.widget.EditText",
+    "index": "0",
+    "xpath": "//android.widget.EditText",
+    "bounds": "[84,1134][891,1197]",
+    "clickable": "false",
+    "displayed": "true",
+    "enabled": "true",
+    "password": "true",
+    "scrollable": "false",
+    "text": "",
+    "hint": ""
   },
   {
-    "id": 4,
-    "role": "button",
-    "label": "¿Olvidaste tu contraseña?",
-    "checked": null
+    "resource-id": "",
+    "content-desc": "¿Olvidaste tu contraseña?",
+    "class": "android.view.View",
+    "index": "7",
+    "xpath": "//android.view.View[@content-desc=\"¿Olvidaste tu contraseña?\"]",
+    "bounds": "[53,1313][574,1373]",
+    "clickable": "true",
+    "displayed": "true",
+    "enabled": "true",
+    "password": "false",
+    "scrollable": "false",
+    "text": "",
+    "hint": ""
   },
   {
-    "id": 5,
-    "role": "button",
-    "label": "Crear cuenta",
-    "checked": null
+    "resource-id": "",
+    "content-desc": "Crear cuenta",
+    "class": "android.view.View",
+    "index": "1",
+    "xpath": "//android.view.View[@content-desc=\"Crear cuenta\"]",
+    "bounds": "[633,2224][922,2303]",
+    "clickable": "true",
+    "displayed": "true",
+    "enabled": "true",
+    "password": "false",
+    "scrollable": "false",
+    "text": "",
+    "hint": ""
   }
 ]
 ```
 
-```bash
-2026-01-08 16:04:00.444 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.445 - tests.specs.unit_test_ui_parser_integration - INFO - ✓ JSON generado: 574 caracteres
-2026-01-08 16:04:00.445 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.445 - tests.specs.unit_test_ui_parser_integration - INFO - ╔══════════════════════════════════════════════════════════════════════════════╗
-2026-01-08 16:04:00.445 - tests.specs.unit_test_ui_parser_integration - INFO - ║  FASE 4: JSON DE ELEMENTOS CON XPATHS
-2026-01-08 16:04:00.445 - tests.specs.unit_test_ui_parser_integration - INFO - ╚══════════════════════════════════════════════════════════════════════════════╝
-2026-01-08 16:04:00.445 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.446 - tests.specs.unit_test_ui_parser_integration - INFO - 📋 JSON CON XPATHS:
-2026-01-08 16:04:00.446 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.447 - tests.specs.unit_test_ui_parser_integration - INFO - 
-```
+---
 
-```json
-[      
-  {
-    "id": 0,
-    "role": "button",
-    "label": "Iniciar sesión",
-    "checked": null,
-    "xpath": "//android.view.View[@content-desc=\"Iniciar sesión\"]"
-  },
-  {
-    "id": 1,
-    "role": "input",
-    "label": "Ejemplo@mail.com",
-    "checked": null,
-    "xpath": "//android.widget.EditText"
-  },
-  {
-    "id": 2,
-    "role": "button",
-    "label": "**********",
-    "checked": null,
-    "xpath": "//android.view.View[@content-desc=\"**********\"]"
-  },
-  {
-    "id": 3,
-    "role": "input",
-    "label": "Input field",
-    "checked": null,
-    "xpath": "//android.widget.EditText"
-  },
-  {
-    "id": 4,
-    "role": "button",
-    "label": "¿Olvidaste tu contraseña?",
-    "checked": null,
-    "xpath": "//android.view.View[@content-desc=\"¿Olvidaste tu contraseña?\"]"       
-  },
-  {
-    "id": 5,
-    "role": "button",
-    "label": "Crear cuenta",
-    "checked": null,
-    "xpath": "//android.view.View[@content-desc=\"Crear cuenta\"]"
-  }
-]
-```
+## 📊 FASE 4: Resumen XPaths
 
-```bash
-2026-01-08 16:04:00.447 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.447 - tests.specs.unit_test_ui_parser_integration - INFO - ✓ JSON con XPaths generado: 943 caracteres
-2026-01-08 16:04:00.447 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.448 - tests.specs.unit_test_ui_parser_integration - INFO - 📊 RESUMEN DE XPATHS:
-2026-01-08 16:04:00.448 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.448 - tests.specs.unit_test_ui_parser_integration - INFO -   [  0] button   - XPath: //android.view.View[@content-desc="Iniciar sesión"]
-2026-01-08 16:04:00.448 - tests.specs.unit_test_ui_parser_integration - INFO -   [  1] input    - XPath: //android.widget.EditText
-2026-01-08 16:04:00.448 - tests.specs.unit_test_ui_parser_integration - INFO -   [  2] button   - XPath: //android.view.View[@content-desc="**********"]
-2026-01-08 16:04:00.448 - tests.specs.unit_test_ui_parser_integration - INFO -   [  3] input    - XPath: //android.widget.EditText
-2026-01-08 16:04:00.449 - tests.specs.unit_test_ui_parser_integration - INFO -   [  4] button   - XPath: //android.view.View[@content-desc="¿Olvidaste tu contraseña?"]     
-2026-01-08 16:04:00.449 - tests.specs.unit_test_ui_parser_integration - INFO -   [  5] button   - XPath: //android.view.View[@content-desc="Crear cuenta"]
-2026-01-08 16:04:00.449 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.449 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.449 - tests.specs.unit_test_ui_parser_integration - INFO - ╔══════════════════════════════════════════════════════════════════════════════╗
-2026-01-08 16:04:00.449 - tests.specs.unit_test_ui_parser_integration - INFO - ║  FASE 5: TOON (FORMATO QUE LLEGA A LA IA)
-2026-01-08 16:04:00.449 - tests.specs.unit_test_ui_parser_integration - INFO - ╚══════════════════════════════════════════════════════════════════════════════╝
-2026-01-08 16:04:00.450 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.450 - tests.specs.unit_test_ui_parser_integration - INFO - 🔍 Convirtiendo elementos a formato TOON...
-2026-01-08 16:04:00.450 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.450 - tests.specs.unit_test_ui_parser_integration - INFO - 📋 TOON COMPLETO (30-60% menos tokens que JSON):
-2026-01-08 16:04:00.450 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.451 - tests.specs.unit_test_ui_parser_integration - INFO - 
-```
+**Estado:** ✓ XPaths mapeados (incluidos en JSON)
+
+| ID | Elemento | XPath |
+| --- | --- | --- |
+| [0] | Iniciar sesión | `//android.view.View[@content-desc="Iniciar sesión"]` |
+| [1] | sin-id | `//android.widget.EditText` |
+| [2] | ********** | `//android.view.View[@content-desc="**********"]` |
+| [3] | sin-id | `//android.widget.EditText` |
+| [4] | ¿Olvidaste tu contraseña? | `//android.view.View[@content-desc="¿Olvidaste tu contraseña?"]` |
+| [5] | Crear cuenta | `//android.view.View[@content-desc="Crear cuenta"]` |
+
+---
+
+## 🎯 FASE 5: TOON (Token-Oriented Object Notation)
+
+**Estado:** ✓ TOON generado (1,046 caracteres) — **53.8% menos caracteres que JSON**
 
 ```toon
-# Usa tabs para separar los elementos
-
-[6    ]{id     role    label   checked}:
-  0     button  Iniciar sesión  null
-  1     input   Ejemplo@mail.com        null
-  2     button  **********      null
-  3     input   Input field     null
-  4     button  ¿Olvidaste tu contraseña?       null
-  5     button  Crear cuenta    null
+[6       ]{resource-id  content-desc  class  index  xpath  bounds  clickable  displayed  enabled  password  scrollable  text  hint}:
+""       Iniciar sesión  android.view.View  "0"  "//android.view.View[@content-desc=\"Iniciar sesión\"]"  "[0,0][1080,2400]"  "true"  "true"  "true"  "false"  "false"  ""  ""
+""       ""  android.widget.EditText  "4"  //android.widget.EditText  "[53,824][1028,950]"  "true"  "true"  "true"  "false"  "false"  ""  Ejemplo@mail.com
+""       **********  android.view.View  "6"  "//android.view.View[@content-desc=\"**********\"]"  "[53,1103][1028,1229]"  "true"  "true"  "true"  "false"  "false"  ""  ""
+""       ""  android.widget.EditText  "0"  //android.widget.EditText  "[84,1134][891,1197]"  "false"  "true"  "true"  "true"  "false"  ""  ""
+""       ¿Olvidaste tu contraseña?  android.view.View  "7"  "//android.view.View[@content-desc=\"¿Olvidaste tu contraseña?\"]"  "[53,1313][574,1373]"  "true"  "true"  "true"  "false"  "false"  ""  ""
+""       Crear cuenta  android.view.View  "1"  "//android.view.View[@content-desc=\"Crear cuenta\"]"  "[633,2224][922,2303]"  "true"  "true"  "true"  "false"  "false"  ""  ""
 ```
 
-```bash
-2026-01-08 16:04:00.451 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.451 - tests.specs.unit_test_ui_parser_integration - INFO - ✓ TOON generado: 216 caracteres
-2026-01-08 16:04:00.451 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.451 - tests.specs.unit_test_ui_parser_integration - INFO - 📊 COMPARACIÓN DE TAMAÑOS:
-2026-01-08 16:04:00.452 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.452 - tests.specs.unit_test_ui_parser_integration - INFO -   JSON:     574 caracteres
-2026-01-08 16:04:00.452 - tests.specs.unit_test_ui_parser_integration - INFO -   TOON:     216 caracteres
-2026-01-08 16:04:00.452 - tests.specs.unit_test_ui_parser_integration - INFO -   Reducción: 62.4% menos caracteres con TOON
-2026-01-08 16:04:00.452 - tests.specs.unit_test_ui_parser_integration - INFO - ────────────────────────────────────────────────────────────────────────────────
-2026-01-08 16:04:00.453 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.453 - tests.specs.unit_test_ui_parser_integration - INFO - ╔══════════════════════════════════════════════════════════════════════════════╗
-2026-01-08 16:04:00.453 - tests.specs.unit_test_ui_parser_integration - INFO - ║  RESUMEN FINAL
-2026-01-08 16:04:00.453 - tests.specs.unit_test_ui_parser_integration - INFO - ╚══════════════════════════════════════════════════════════════════════════════╝
-2026-01-08 16:04:00.453 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.453 - tests.specs.unit_test_ui_parser_integration - INFO - 📊 ESTADÍSTICAS:
-2026-01-08 16:04:00.454 - tests.specs.unit_test_ui_parser_integration - INFO -    Total de elementos: 6
-2026-01-08 16:04:00.454 - tests.specs.unit_test_ui_parser_integration - INFO -    📝 Inputs: 2
-2026-01-08 16:04:00.454 - tests.specs.unit_test_ui_parser_integration - INFO -    🔘 Botones: 4
-2026-01-08 16:04:00.454 - tests.specs.unit_test_ui_parser_integration - INFO -    ☑️   Checkboxes: 0
-2026-01-08 16:04:00.455 - tests.specs.unit_test_ui_parser_integration - INFO -        
-2026-01-08 16:04:00.455 - tests.specs.unit_test_ui_parser_integration - INFO - 📏 TAMAÑOS:
-2026-01-08 16:04:00.455 - tests.specs.unit_test_ui_parser_integration - INFO -    XML source: 9,304 caracteres
-2026-01-08 16:04:00.455 - tests.specs.unit_test_ui_parser_integration - INFO -    JSON:       574 caracteres
-2026-01-08 16:04:00.455 - tests.specs.unit_test_ui_parser_integration - INFO -    TOON:       216 caracteres
-2026-01-08 16:04:00.455 - tests.specs.unit_test_ui_parser_integration - INFO -    Ahorro:     62.4% con TOON
-2026-01-08 16:04:00.456 - tests.specs.unit_test_ui_parser_integration - INFO -
-2026-01-08 16:04:00.456 - tests.specs.unit_test_ui_parser_integration - INFO - ================================================================================
-2026-01-08 16:04:00.709 - tests.specs.conftest - INFO - 📸 Screenshot adjuntado a Allure: 02_ai_parser_debug_final_screenshot
-2026-01-08 16:04:00.737 - tests.specs.conftest - INFO - 📄 Page source XML adjuntado a Allure: 02_ai_parser_debug_final_xml
-PASSED                                                                         [100%]
---------------------------------- live log teardown ---------------------------------
-2026-01-08 16:04:00.740 - tests.specs.conftest - INFO -
-2026-01-08 16:04:00.740 - tests.specs.conftest - INFO - CONFTEST: FASE FINAL - Cerrando driver...
-2026-01-08 16:04:00.740 - tests.specs.conftest - INFO - CONFTEST: 🔒 Cerrando session: 5a7a57ce-9f8f-48d3-8877-630e5003b9ce
-2026-01-08 16:04:01.173 - tests.specs.conftest - INFO - CONFTEST: ✓ Driver cerrado correctamente
-2026-01-08 16:04:01.174 - tests.specs.conftest - INFO - CONFTEST: Tiempo total del fixture: 23.99s
-2026-01-08 16:04:01.174 - tests.specs.conftest - INFO -
+**Ventajas del TOON:**
 
+- Formato tabular con headers (reduce repetición)
+- Tab-separated values
+- Mantiene fidelidad completa de datos
+- 30-60% menos tokens que JSON
 
-================================ 1 passed in 24.06s =================================
+---
+
+## 📈 Comparación de Tamaños
+
+| Formato | Caracteres | Reducción |
+| --- | --- | --- |
+| XML source | 9,304 | - |
+| JSON | 2,264 | 75.7% vs XML |
+| TOON | 1,046 | 53.8% vs JSON |
+| **TOON vs XML** | **1,046** | **88.8%** |
+
+---
+
+## ✅ Resumen Final
+
+### Estadísticas de Elementos
+
+| Tipo | Cantidad |
+| --- | --- |
+| **Total de elementos** | 6 |
+| 📝 Inputs (EditText) | 2 |
+| 🔘 Clickeables | 5 |
+
+### Ahorro de Tokens
+
+- **TOON vs JSON:** 53.8% reducción
+- **TOON vs XML:** 88.8% reducción
+
+### Estado
+
+```text
+✅ Test de depuración completado exitosamente
+📸 Screenshots y XML adjuntados a Allure
+⏱️ Tiempo total: 29.67s
 ```
+
+---
+
+## 🔗 Referencias
+
+- **UIParser:** `src/ui_parser.py` - Transforma XML en JSON/TOON simplificado
+- **TOON Format:** Especificación en [github.com/toon-format/toon](https://github.com/toon-format/toon)
+- **Allure Reports:** `scripts/generate_report.py`
