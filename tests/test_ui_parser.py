@@ -500,3 +500,144 @@ class TestUIParserIntegration:
         
         # Assert final: el test es exitoso si encontramos elementos de login
         assert len(elements) >= 2, f"Se esperaban al menos 2 elementos (input + botón), se encontraron {len(elements)}"
+
+
+class TestUIParserTOON:
+    """Tests para la funcionalidad TOON del UIParser."""
+
+    def test_elements_to_toon_basic(self):
+        """Test: Convertir lista de elementos básica a formato TOON."""
+        elements = [
+            {"id": 0, "role": "button", "label": "Login", "checked": None},
+            {"id": 1, "role": "input", "label": "Email", "checked": None},
+        ]
+        
+        parser = UIParser()
+        toon_output = parser.elements_to_toon(elements)
+        
+        # Verificar que se generó output TOON
+        assert toon_output is not None
+        assert len(toon_output) > 0
+        
+        # TOON debe contener el número de elementos en el header
+        assert "[2" in toon_output, "TOON debe indicar la cantidad de elementos"
+        
+        # TOON debe contener los campos del header
+        assert "id" in toon_output
+        assert "role" in toon_output
+        assert "label" in toon_output
+        assert "checked" in toon_output
+        
+        # TOON debe contener los valores
+        assert "Login" in toon_output
+        assert "Email" in toon_output
+        assert "button" in toon_output
+        assert "input" in toon_output
+        
+        logger.info(f"TOON output:\n{toon_output}")
+
+    def test_elements_to_toon_empty_list(self):
+        """Test: Lista vacía debe retornar string vacío."""
+        parser = UIParser()
+        toon_output = parser.elements_to_toon([])
+        
+        assert toon_output == ""
+
+    def test_elements_to_toon_with_checkbox(self):
+        """Test: Convertir elementos con checkbox a TOON."""
+        elements = [
+            {"id": 0, "role": "checkbox", "label": "Remember me", "checked": True},
+            {"id": 1, "role": "checkbox", "label": "Accept terms", "checked": False},
+        ]
+        
+        parser = UIParser()
+        toon_output = parser.elements_to_toon(elements)
+        
+        # TOON debe contener los valores de checked
+        assert "true" in toon_output.lower()
+        assert "false" in toon_output.lower()
+        
+        logger.info(f"TOON output with checkboxes:\n{toon_output}")
+
+    def test_parse_screen_to_toon_direct(self):
+        """Test: Parsear XML directamente a formato TOON."""
+        xml = """
+        <hierarchy>
+            <android.widget.EditText
+                hint="Usuario"
+                class="android.widget.EditText"
+                resource-id="com.example:id/username"/>
+            <android.widget.EditText
+                hint="Contraseña"
+                class="android.widget.EditText"
+                resource-id="com.example:id/password"/>
+            <android.widget.Button
+                text="Ingresar"
+                clickable="true"
+                class="android.widget.Button"
+                resource-id="com.example:id/login_btn"/>
+        </hierarchy>
+        """
+        
+        parser = UIParser()
+        toon_output = parser.parse_screen_to_toon(xml)
+        
+        # Verificar que se generó output TOON
+        assert toon_output is not None
+        assert len(toon_output) > 0
+        
+        # TOON debe contener 3 elementos
+        assert "[3" in toon_output, "TOON debe indicar 3 elementos"
+        
+        # Verificar que los resource-ids están presentes (tienen prioridad)
+        assert "username" in toon_output
+        assert "password" in toon_output
+        assert "login_btn" in toon_output
+        
+        logger.info(f"TOON output (parse_screen_to_toon):\n{toon_output}")
+
+    def test_toon_is_more_compact_than_json(self):
+        """Test: TOON debe ser más compacto que JSON para arrays uniformes."""
+        import json
+        
+        elements = [
+            {"id": 0, "role": "button", "label": "Login", "checked": None},
+            {"id": 1, "role": "input", "label": "Email", "checked": None},
+            {"id": 2, "role": "input", "label": "Password", "checked": None},
+            {"id": 3, "role": "checkbox", "label": "Remember", "checked": False},
+            {"id": 4, "role": "button", "label": "Forgot password?", "checked": None},
+        ]
+        
+        parser = UIParser()
+        toon_output = parser.elements_to_toon(elements)
+        json_output = json.dumps(elements)
+        
+        # TOON debe ser significativamente más corto que JSON
+        toon_len = len(toon_output)
+        json_len = len(json_output)
+        
+        logger.info(f"Comparación de tamaños:")
+        logger.info(f"  JSON: {json_len} caracteres")
+        logger.info(f"  TOON: {toon_len} caracteres")
+        logger.info(f"  Ahorro: {((json_len - toon_len) / json_len * 100):.1f}%")
+        
+        # TOON debe ser al menos 20% más corto para este caso
+        assert toon_len < json_len, "TOON debe ser más compacto que JSON"
+        
+        logger.info(f"\nJSON:\n{json_output}")
+        logger.info(f"\nTOON:\n{toon_output}")
+
+    def test_elements_to_toon_special_characters(self):
+        """Test: TOON maneja correctamente caracteres especiales en labels."""
+        elements = [
+            {"id": 0, "role": "button", "label": "Botón con ñ y áéíóú", "checked": None},
+            {"id": 1, "role": "input", "label": "Campo, con coma", "checked": None},
+        ]
+        
+        parser = UIParser()
+        toon_output = parser.elements_to_toon(elements)
+        
+        # Verificar que los caracteres especiales están presentes
+        assert "ñ" in toon_output or "Botón" in toon_output
+        
+        logger.info(f"TOON with special chars:\n{toon_output}")

@@ -1,14 +1,26 @@
 """
 AI Orchestrator - Orquesta las decisiones de IA para ejecutar acciones en la app móvil.
 Soporta OpenAI y Anthropic.
+
+Utiliza formato TOON (Token-Oriented Object Notation) para reducir el consumo
+de tokens al enviar información de UI a los modelos de IA.
+https://github.com/toon-format/toon
 """
 
 import json
+import logging
+import time
+import traceback
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from anthropic import Anthropic
 
+from toon_format import encode as toon_encode
+
 from src.config import Config
+
+# Configurar logging para este módulo
+logger = logging.getLogger(__name__)
 
 
 class AIOrchestrator:
@@ -18,19 +30,48 @@ class AIOrchestrator:
 
     def __init__(self):
         """Inicializa el orquestador con el proveedor de IA configurado."""
+        logger.info("=" * 70)
+        logger.info("AI_ORCHESTRATOR: Inicializando orquestador de IA")
+        logger.info("=" * 70)
+        
         self.provider = Config.DEFAULT_AI_PROVIDER
+        logger.info(f"AI_ORCHESTRATOR: Proveedor seleccionado: {self.provider}")
+        
+        # Estadísticas de llamadas
+        self._call_stats = {
+            "total_calls": 0,
+            "successful_calls": 0,
+            "failed_calls": 0,
+            "total_tokens_used": 0,
+            "total_time_ms": 0,
+        }
         
         if self.provider == "openai":
+            logger.debug("AI_ORCHESTRATOR: Configurando cliente OpenAI...")
             if not Config.OPENAI_API_KEY:
+                logger.error("AI_ORCHESTRATOR ERROR: OPENAI_API_KEY no está configurada")
                 raise ValueError("OPENAI_API_KEY no está configurada")
+            
+            # Verificar formato de API key (debe empezar con sk-)
+            if not Config.OPENAI_API_KEY.startswith("sk-"):
+                logger.warning("AI_ORCHESTRATOR WARNING: OPENAI_API_KEY no tiene el formato esperado (sk-...)")
+            
             self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
             self.model = Config.OPENAI_MODEL
+            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente OpenAI configurado con modelo: {self.model}")
+            
         elif self.provider == "anthropic":
+            logger.debug("AI_ORCHESTRATOR: Configurando cliente Anthropic...")
             if not Config.ANTHROPIC_API_KEY:
+                logger.error("AI_ORCHESTRATOR ERROR: ANTHROPIC_API_KEY no está configurada")
                 raise ValueError("ANTHROPIC_API_KEY no está configurada")
+            
             self.client = Anthropic(api_key=Config.ANTHROPIC_API_KEY)
             self.model = Config.ANTHROPIC_MODEL
+            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente Anthropic configurado con modelo: {self.model}")
+            
         else:
+            logger.error(f"AI_ORCHESTRATOR ERROR: Proveedor no soportado: {self.provider}")
             raise ValueError(f"Proveedor de IA no soportado: {self.provider}")
 
     def decide_next_action(
@@ -52,17 +93,68 @@ class AIOrchestrator:
         Returns:
             Diccionario con la decisión de la IA (tool_call o mensaje)
         """
+        logger.info("=" * 70)
+        logger.info("AI_ORCHESTRATOR: Solicitando decisión de acción")
+        logger.info("=" * 70)
+        
+        self._call_stats["total_calls"] += 1
+        call_number = self._call_stats["total_calls"]
+        logger.info(f"AI_ORCHESTRATOR: Llamada #{call_number}")
+        
+        # Log inputs
+        logger.debug(f"AI_ORCHESTRATOR: Paso actual: '{current_step}'")
+        logger.debug(f"AI_ORCHESTRATOR: Objetivo: '{objective or 'No definido'}'")
+        logger.debug(f"AI_ORCHESTRATOR: Elementos UI disponibles: {len(ui_elements)}")
+        logger.debug(f"AI_ORCHESTRATOR: Historial de acciones: {len(action_history)} acciones")
+        
+        if not ui_elements:
+            logger.warning("AI_ORCHESTRATOR WARNING: No hay elementos UI para analizar")
+        
         # Preparar contexto para el LLM
+        logger.debug("AI_ORCHESTRATOR: Construyendo contexto para el LLM...")
         context = self._build_context(ui_elements, current_step, action_history, objective)
+        
+        # Log del contexto completo (para debug profundo)
+        logger.debug("AI_ORCHESTRATOR: Contexto generado:")
+        for line in context.split('\n'):
+            logger.debug(f"  {line}")
 
         # Definir herramientas disponibles
         tools = self._get_tools_definition()
+        logger.debug(f"AI_ORCHESTRATOR: Herramientas disponibles: {[t['function']['name'] for t in tools]}")
 
         # Llamar al LLM según el proveedor
-        if self.provider == "openai":
-            return self._call_openai(context, tools)
-        else:  # anthropic
-            return self._call_anthropic(context, tools)
+        start_time = time.time()
+        try:
+            if self.provider == "openai":
+                logger.info(f"AI_ORCHESTRATOR: Llamando a OpenAI ({self.model})...")
+                result = self._call_openai(context, tools)
+            else:  # anthropic
+                logger.info(f"AI_ORCHESTRATOR: Llamando a Anthropic ({self.model})...")
+                result = self._call_anthropic(context, tools)
+            
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            self._call_stats["successful_calls"] += 1
+            self._call_stats["total_time_ms"] += elapsed_ms
+            
+            logger.info(f"AI_ORCHESTRATOR: ✓ Respuesta recibida en {elapsed_ms}ms")
+            
+            # Log de la decisión
+            if result.get("tool_calls"):
+                for tc in result["tool_calls"]:
+                    logger.info(f"AI_ORCHESTRATOR: Decisión -> {tc['name']}({tc['arguments']})")
+            else:
+                logger.info(f"AI_ORCHESTRATOR: Decisión -> No tool call. Mensaje: {result.get('message', 'N/A')}")
+            
+            return result
+            
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            self._call_stats["failed_calls"] += 1
+            logger.error(f"AI_ORCHESTRATOR ERROR: Fallo en llamada #{call_number} después de {elapsed_ms}ms")
+            logger.error(f"AI_ORCHESTRATOR ERROR: {type(e).__name__}: {str(e)}")
+            logger.error(f"AI_ORCHESTRATOR ERROR: Traceback:\n{traceback.format_exc()}")
+            raise
 
     def _build_context(
         self,
@@ -72,7 +164,10 @@ class AIOrchestrator:
         objective: Optional[str],
     ) -> str:
         """
-        Construye el contexto para el prompt del LLM.
+        Construye el contexto para el prompt del LLM usando formato TOON.
+        
+        TOON (Token-Oriented Object Notation) reduce el consumo de tokens
+        en un 30-60% comparado con JSON para arrays uniformes de objetos.
 
         Args:
             ui_elements: Lista de elementos disponibles
@@ -81,7 +176,7 @@ class AIOrchestrator:
             objective: Objetivo general
 
         Returns:
-            String con el contexto formateado
+            String con el contexto formateado en TOON
         """
         context_parts = []
 
@@ -99,16 +194,23 @@ class AIOrchestrator:
                 context_parts.append(f"  {i}. {action}")
             context_parts.append("")
 
-        # Elementos disponibles en la pantalla
-        context_parts.append("Elementos disponibles en la pantalla:")
+        # Elementos disponibles en la pantalla (formato TOON para eficiencia de tokens)
+        context_parts.append("Elementos disponibles en la pantalla (formato TOON):")
         if not ui_elements:
             context_parts.append("  (No hay elementos interactuables visibles)")
         else:
-            for element in ui_elements:
-                element_str = f"  ID {element['id']}: {element['role']} - '{element['label']}'"
-                if element.get('checked') is not None:
-                    element_str += f" (checked: {element['checked']})"
-                context_parts.append(element_str)
+            # Convertir elementos a formato TOON para reducir tokens
+            # TOON usa formato tabular: [N]{field1,field2,...}: seguido de filas
+            # Ejemplo: [3]{id,role,label,checked}:
+            #            0,button,Login,null
+            #            1,input,Email,null
+            toon_options = {
+                "delimiter": "\t",  # Tabs para mayor eficiencia
+            }
+            toon_elements = toon_encode(ui_elements, toon_options)
+            context_parts.append(toon_elements)
+            
+            logger.debug(f"AI_ORCHESTRATOR: Elementos convertidos a TOON ({len(toon_elements)} chars)")
 
         return "\n".join(context_parts)
 
@@ -218,12 +320,22 @@ class AIOrchestrator:
         Returns:
             Respuesta de la IA
         """
+        logger.debug("AI_ORCHESTRATOR [OpenAI]: Preparando llamada a API...")
+        
         system_prompt = """Eres un Agente de QA Móvil autónomo. Tu objetivo es ejecutar pruebas en aplicaciones móviles Android.
 
+Los elementos de la pantalla se muestran en formato TOON (Token-Oriented Object Notation), un formato compacto.
+Ejemplo TOON:
+[2\t]{id\trole\tlabel\tchecked}:
+  0\tbutton\tLogin\tnull
+  1\tinput\tEmail\tnull
+
+Esto significa: 2 elementos, con campos id, role, label, checked separados por tabs.
+
 Instrucciones:
-1. Analiza los elementos disponibles en la pantalla
+1. Analiza los elementos disponibles en la pantalla (formato TOON)
 2. Si ves popups o diálogos, ciérralos primero antes de continuar
-3. Selecciona el elemento correcto del listado usando su ID
+3. Selecciona el elemento correcto del listado usando su ID (campo "id" en TOON)
 4. Usa las herramientas proporcionadas para interactuar con la app
 5. Si no encuentras un elemento, intenta hacer scroll
 6. Para validaciones, usa assert_screen_contains
@@ -234,31 +346,78 @@ Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el pas
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": context},
         ]
+        
+        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Modelo: {self.model}")
+        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del system prompt: {len(system_prompt)} chars")
+        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del contexto: {len(context)} chars")
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
-            temperature=0.3,  # Baja temperatura para decisiones más determinísticas
-        )
+        try:
+            logger.debug("AI_ORCHESTRATOR [OpenAI]: Enviando request...")
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.3,  # Baja temperatura para decisiones más determinísticas
+            )
+            logger.debug("AI_ORCHESTRATOR [OpenAI]: ✓ Response recibido")
+            
+        except Exception as e:
+            logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: Fallo en API call")
+            logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: {type(e).__name__}: {str(e)}")
+            
+            # Diagnóstico de errores comunes
+            error_str = str(e).lower()
+            if "authentication" in error_str or "api key" in error_str:
+                logger.error("AI_ORCHESTRATOR [OpenAI] DIAGNÓSTICO: Problema de autenticación. Verifica OPENAI_API_KEY")
+            elif "rate limit" in error_str:
+                logger.error("AI_ORCHESTRATOR [OpenAI] DIAGNÓSTICO: Rate limit alcanzado. Espera antes de reintentar")
+            elif "model" in error_str:
+                logger.error(f"AI_ORCHESTRATOR [OpenAI] DIAGNÓSTICO: Problema con el modelo '{self.model}'")
+            elif "timeout" in error_str or "connection" in error_str:
+                logger.error("AI_ORCHESTRATOR [OpenAI] DIAGNÓSTICO: Problema de conexión/timeout")
+            
+            raise
 
         message = response.choices[0].message
+        
+        # Log detalles de la respuesta
+        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: finish_reason: {response.choices[0].finish_reason}")
+        if hasattr(response, 'usage') and response.usage:
+            logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Tokens - prompt: {response.usage.prompt_tokens}, "
+                        f"completion: {response.usage.completion_tokens}, "
+                        f"total: {response.usage.total_tokens}")
+            self._call_stats["total_tokens_used"] += response.usage.total_tokens
 
         # Procesar respuesta
         result = {
             "provider": "openai",
             "message": message.content,
             "tool_calls": [],
+            "raw_response": {
+                "finish_reason": response.choices[0].finish_reason,
+                "model": response.model if hasattr(response, 'model') else self.model,
+            }
         }
 
         if message.tool_calls:
+            logger.debug(f"AI_ORCHESTRATOR [OpenAI]: {len(message.tool_calls)} tool call(s) recibidas")
             for tool_call in message.tool_calls:
-                result["tool_calls"].append({
-                    "id": tool_call.id,
-                    "name": tool_call.function.name,
-                    "arguments": json.loads(tool_call.function.arguments),
-                })
+                try:
+                    parsed_args = json.loads(tool_call.function.arguments)
+                    result["tool_calls"].append({
+                        "id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "arguments": parsed_args,
+                    })
+                    logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Tool call: {tool_call.function.name}({parsed_args})")
+                except json.JSONDecodeError as je:
+                    logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: No se pudo parsear arguments JSON")
+                    logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: Raw arguments: {tool_call.function.arguments}")
+                    logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: JSONDecodeError: {je}")
+                    raise ValueError(f"Invalid JSON in tool call arguments: {tool_call.function.arguments}")
+        else:
+            logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Sin tool calls. Mensaje: {message.content}")
 
         return result
 
@@ -273,12 +432,22 @@ Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el pas
         Returns:
             Respuesta de la IA
         """
+        logger.debug("AI_ORCHESTRATOR [Anthropic]: Preparando llamada a API...")
+        
         system_prompt = """Eres un Agente de QA Móvil autónomo. Tu objetivo es ejecutar pruebas en aplicaciones móviles Android.
 
+Los elementos de la pantalla se muestran en formato TOON (Token-Oriented Object Notation), un formato compacto.
+Ejemplo TOON:
+[2\t]{id\trole\tlabel\tchecked}:
+  0\tbutton\tLogin\tnull
+  1\tinput\tEmail\tnull
+
+Esto significa: 2 elementos, con campos id, role, label, checked separados por tabs.
+
 Instrucciones:
-1. Analiza los elementos disponibles en la pantalla
+1. Analiza los elementos disponibles en la pantalla (formato TOON)
 2. Si ves popups o diálogos, ciérralos primero antes de continuar
-3. Selecciona el elemento correcto del listado usando su ID
+3. Selecciona el elemento correcto del listado usando su ID (campo "id" en TOON)
 4. Usa las herramientas proporcionadas para interactuar con la app
 5. Si no encuentras un elemento, intenta hacer scroll
 6. Para validaciones, usa assert_screen_contains
@@ -286,6 +455,7 @@ Instrucciones:
 Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el paso actual."""
 
         # Convertir herramientas al formato de Anthropic
+        logger.debug("AI_ORCHESTRATOR [Anthropic]: Convirtiendo herramientas al formato Anthropic...")
         anthropic_tools = []
         for tool in tools:
             anthropic_tools.append({
@@ -293,34 +463,97 @@ Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el pas
                 "description": tool["function"]["description"],
                 "input_schema": tool["function"]["parameters"],
             })
+        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: {len(anthropic_tools)} herramientas configuradas")
+        
+        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Modelo: {self.model}")
+        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del system prompt: {len(system_prompt)} chars")
+        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del contexto: {len(context)} chars")
 
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": context},
-            ],
-            tools=anthropic_tools,
-        )
+        try:
+            logger.debug("AI_ORCHESTRATOR [Anthropic]: Enviando request...")
+            message = self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": context},
+                ],
+                tools=anthropic_tools,
+            )
+            logger.debug("AI_ORCHESTRATOR [Anthropic]: ✓ Response recibido")
+            
+        except Exception as e:
+            logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: Fallo en API call")
+            logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: {type(e).__name__}: {str(e)}")
+            
+            # Diagnóstico de errores comunes
+            error_str = str(e).lower()
+            if "authentication" in error_str or "api key" in error_str or "invalid x-api-key" in error_str:
+                logger.error("AI_ORCHESTRATOR [Anthropic] DIAGNÓSTICO: Problema de autenticación. Verifica ANTHROPIC_API_KEY")
+            elif "rate limit" in error_str:
+                logger.error("AI_ORCHESTRATOR [Anthropic] DIAGNÓSTICO: Rate limit alcanzado. Espera antes de reintentar")
+            elif "model" in error_str:
+                logger.error(f"AI_ORCHESTRATOR [Anthropic] DIAGNÓSTICO: Problema con el modelo '{self.model}'")
+            elif "timeout" in error_str or "connection" in error_str:
+                logger.error("AI_ORCHESTRATOR [Anthropic] DIAGNÓSTICO: Problema de conexión/timeout")
+            
+            raise
 
-        # Procesar respuesta
+        # Log detalles de la respuesta
+        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: stop_reason: {message.stop_reason}")
+        if hasattr(message, 'usage') and message.usage:
+            logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Tokens - input: {message.usage.input_tokens}, "
+                        f"output: {message.usage.output_tokens}")
+            self._call_stats["total_tokens_used"] += (message.usage.input_tokens + message.usage.output_tokens)
+
+        # Procesar respuesta - extraer mensaje de texto
+        text_message = None
+        if message.content:
+            for content_block in message.content:
+                if hasattr(content_block, 'type') and content_block.type == 'text':
+                    text_message = content_block.text
+                    break
+        
         result = {
             "provider": "anthropic",
-            "message": message.content[0].text if message.content else None,
+            "message": text_message,
             "tool_calls": [],
+            "raw_response": {
+                "stop_reason": message.stop_reason,
+                "model": message.model if hasattr(message, 'model') else self.model,
+            }
         }
 
         # Anthropic usa stop_reason y content blocks para tool calls
         # Revisar si hay tool_use en el contenido
         if message.content:
-            for content_block in message.content:
+            logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Procesando {len(message.content)} content block(s)")
+            for idx, content_block in enumerate(message.content):
+                block_type = getattr(content_block, 'type', 'unknown')
+                logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Block {idx}: tipo={block_type}")
+                
                 if hasattr(content_block, 'type') and content_block.type == 'tool_use':
                     result["tool_calls"].append({
                         "id": content_block.id,
                         "name": content_block.name,
                         "arguments": content_block.input,
                     })
+                    logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Tool call: {content_block.name}({content_block.input})")
+
+        if result["tool_calls"]:
+            logger.debug(f"AI_ORCHESTRATOR [Anthropic]: {len(result['tool_calls'])} tool call(s) extraídas")
+        else:
+            logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Sin tool calls. Mensaje: {text_message}")
 
         return result
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        DEBUG: Retorna estadísticas de las llamadas al LLM.
+        """
+        stats = self._call_stats.copy()
+        if stats["total_calls"] > 0:
+            stats["success_rate"] = f"{(stats['successful_calls'] / stats['total_calls']) * 100:.1f}%"
+            stats["avg_time_ms"] = stats["total_time_ms"] // stats["total_calls"]
+        return stats
 
