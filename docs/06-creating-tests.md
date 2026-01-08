@@ -60,7 +60,13 @@ Vamos a crear una prueba de login paso a paso. Abre tu editor de código y sigue
 
 ### Paso 1: Crear el archivo de test
 
-Crea un nuevo archivo llamado `tests/test_login.py`:
+**Para tests del proyecto:** Crea un archivo con prefijo `test_*.py`:
+- `tests/test_login.py` - Test del framework/proyecto
+
+**Para tests de usuario:** Crea un archivo con prefijo `spec_*.py`:
+- `tests/specs/spec_login.py` - Test de usuario (especificación de funcionalidad)
+
+En este ejemplo, crearemos `tests/specs/spec_login.py` (test de usuario):
 
 ```python
 """
@@ -185,12 +191,16 @@ class TestLogin:
 Guarda el archivo y ejecuta:
 
 ```bash
+# Si creaste spec_login.py (test de usuario)
+poetry run pytest tests/specs/spec_login.py -v
+
+# O si creaste test_login.py (test del proyecto)
 poetry run pytest tests/test_login.py -v
 ```
 
 **Resultado esperado:**
 ```
-tests/test_login.py::TestLogin::test_pantalla_login_carga_correctamente PASSED
+tests/specs/spec_login.py::TestLogin::test_pantalla_login_carga_correctamente PASSED
 
 📱 Elementos encontrados: 5
    ID 0: input - com.app:id/email
@@ -377,7 +387,7 @@ def test_con_manejo_errores(self, driver_setup):
 
 ## Archivo Completo de Ejemplo
 
-Aquí está el archivo `tests/test_login.py` completo:
+Aquí está el archivo `tests/specs/spec_login.py` completo (test de usuario):
 
 ```python
 """
@@ -485,20 +495,38 @@ class TestLogin:
 ### Todos los tests de login
 
 ```bash
+# Si usaste spec_*.py (tests de usuario)
+poetry run pytest tests/specs/spec_login.py -v
+
+# Si usaste test_*.py (tests del proyecto)
 poetry run pytest tests/test_login.py -v
 ```
 
 ### Solo tests de integración
 
 ```bash
+# Tests de usuario
+poetry run pytest tests/specs/spec_login.py -v -m integration
+
+# Tests del proyecto
 poetry run pytest tests/test_login.py -v -m integration
+```
+
+### Ejecutar todos los specs de usuario
+
+```bash
+# Todos los tests de usuario (spec_*.py)
+poetry run pytest tests/specs/spec_*.py -v
+
+# Todos los tests del proyecto (test_*.py)
+poetry run pytest tests/specs/test_*.py -v
 ```
 
 ### Con reporte de Allure
 
 ```bash
 # Ejecutar tests
-poetry run pytest tests/test_login.py -v
+poetry run pytest tests/specs/spec_login.py -v
 
 # Generar reporte
 poetry run python scripts/generate_report.py
@@ -513,5 +541,12 @@ poetry run python scripts/generate_report.py
 Ahora que sabes crear pruebas:
 
 1. Crea tests para otras funcionalidades de tu app
-2. Explora el código de `tests/test_ui_parser.py` para ver más ejemplos
+   - Usa `spec_*.py` para tests de usuario (funcionalidades de la app)
+   - Usa `test_*.py` para tests del framework/proyecto
+2. Explora el código de `tests/unit/test_ui_parser.py` para ver más ejemplos
 3. Lee el [Glosario](02-glossary.md) si encuentras términos que no entiendes
+
+**Nota sobre nombres de archivos:**
+- Pytest reconoce automáticamente tanto `test_*.py` como `spec_*.py`
+- Usa `spec_*.py` para tus tests de usuario (especificaciones de funcionalidad)
+- Usa `test_*.py` para tests del proyecto (framework, componentes internos)

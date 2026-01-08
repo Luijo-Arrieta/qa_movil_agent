@@ -299,10 +299,14 @@ tests/
 │   └── test_test_runner.py  # Tests de AITestRunner (con mocks)
 └── specs/                   # Tests E2E/INTEGRACIÓN (requieren Appium + dispositivo)
     ├── conftest.py          # Fixtures E2E (driver_setup, Allure)
-    ├── test_ui_parser_integration.py
+    ├── test_ui_parser_integration.py  # Tests del proyecto
     └── examples/
-        └── test_example.py
+        └── spec_example.py  # Tests de usuario (usar prefijo spec_*.py)
 ```
+
+**Convención de Nombres:**
+- `test_*.py` - Tests del proyecto (framework, componentes internos)
+- `spec_*.py` - Tests de usuario (especificaciones de funcionalidad de la app)
 
 ### Comandos de Test
 
@@ -319,6 +323,12 @@ poetry run pytest tests/unit/test_agent_tools.py -v
 # TESTS DE INTEGRACIÓN (requieren Appium + emulador/dispositivo)
 # ═══════════════════════════════════════════════════════════════
 poetry run pytest tests/specs/ -v
+
+# Solo tests de usuario (spec_*.py)
+poetry run pytest tests/specs/spec_*.py -v
+
+# Solo tests del proyecto (test_*.py)
+poetry run pytest tests/specs/test_*.py -v
 
 # ═══════════════════════════════════════════════════════════════
 # TODOS LOS TESTS

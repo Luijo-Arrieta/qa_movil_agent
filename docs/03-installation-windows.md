@@ -376,7 +376,8 @@ En otra terminal:
 
 ```bash
 cd D:\Imagine\qa_movil_agent
-poetry run pytest tests/test_ui_parser.py -v -k "not integration"
+# Ejecutar tests unitarios (no requieren Appium)
+poetry run pytest tests/unit/ -v
 ```
 
 **Resultado esperado:** Las pruebas unitarias deberían pasar.

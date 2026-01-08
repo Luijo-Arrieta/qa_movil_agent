@@ -52,6 +52,12 @@ poetry run pytest tests/unit -v
 # Run only E2E/Spec tests (requires Appium + device)
 poetry run pytest tests/specs -v
 
+# Run only user specs (spec_*.py files)
+poetry run pytest tests/specs/spec_*.py -v
+
+# Run only project tests (test_*.py files)
+poetry run pytest tests/unit/test_*.py -v
+
 # Run with verbose output
 poetry run pytest -v
 
@@ -73,10 +79,14 @@ tests/
 │   └── test_test_runner.py  # AITestRunner unit tests (mocked components)
 └── specs/                   # E2E tests (require Appium + device)
     ├── conftest.py          # E2E fixtures (driver_setup, Allure)
-    ├── test_ui_parser_integration.py
+    ├── test_ui_parser_integration.py  # Project integration tests
     └── examples/            # User test examples
-        └── test_example.py
+        └── spec_example.py  # User specs (use spec_*.py prefix)
 ```
+
+**Naming Convention:**
+- `test_*.py` - Tests del proyecto (framework, componentes internos)
+- `spec_*.py` - Tests de usuario (especificaciones de funcionalidad de la app)
 
 ## Environment Setup
 

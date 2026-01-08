@@ -73,13 +73,17 @@ appium --use-plugins=all
 Vuelve a la **primera terminal** (donde estás en la carpeta del proyecto) y ejecuta:
 
 ```bash
-poetry run pytest tests/test_ui_parser.py::TestUIParserIntegration::test_parse_login_screen_from_real_app -v
+# Ejecutar test de integración del proyecto
+poetry run pytest tests/specs/test_ui_parser_integration.py::TestUIParserIntegration::test_parse_login_screen_from_real_app -v
+
+# O ejecutar todos los tests de specs
+poetry run pytest tests/specs/ -v
 ```
 
 **Resultado esperado:**
 
 ```
-tests/test_ui_parser.py::TestUIParserIntegration::test_parse_login_screen_from_real_app PASSED
+tests/specs/test_ui_parser_integration.py::TestUIParserIntegration::test_parse_login_screen_from_real_app PASSED
 
 ========================= 1 passed in 15.62s =========================
 ```

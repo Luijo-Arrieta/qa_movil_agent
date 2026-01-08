@@ -130,7 +130,9 @@ qa_movil_agent/
 │
 ├── tests/                  # Pruebas automáticas
 │   ├── conftest.py        # Configuración de pytest
-│   └── test_ui_parser.py  # Ejemplos de pruebas
+│   ├── unit/              # Tests unitarios (test_*.py)
+│   └── specs/             # Tests E2E (test_*.py y spec_*.py)
+│       └── examples/      # Tests de usuario (spec_*.py)
 │
 ├── docs/                   # Esta documentación
 ├── reports/                # Reportes generados
