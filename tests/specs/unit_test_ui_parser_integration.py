@@ -9,6 +9,7 @@ Estos tests requieren:
 
 import logging
 import time
+import traceback
 
 import pytest
 from appium.webdriver.common.appiumby import AppiumBy
@@ -34,10 +35,22 @@ class TestUIParserIntegration:
         Este test se conecta a Appium, obtiene el XML real de la pantalla
         actual y verifica que el UIParser puede procesarlo correctamente.
         """
+        logger.info("🚀 Iniciando test de parseo de pantalla real...")
+        logger.info("📱 Esperando a que la app cargue completamente...")
+        
+        # Esperar a que la app cargue (multiplicado por 4)
+        logger.info("   Esperando 12 segundos para que la app inicie...")
+        time.sleep(12)
+        
+        # Capturar screenshot inicial
+        allure_attach_screenshot(driver_setup, "01_parse_test_inicial")
+        
         logger.info("📱 Obteniendo XML de la pantalla actual...")
         
         # Obtener el XML real de la pantalla actual
+        logger.debug("   Obteniendo page_source del driver...")
         xml_source = driver_setup.page_source
+        logger.debug(f"   XML obtenido: {len(xml_source)} caracteres")
         
         # Verificar que obtuvimos XML válido
         assert xml_source is not None, "page_source no debe ser None"
@@ -89,46 +102,123 @@ class TestUIParserIntegration:
         Este test verifica que el mapeo ID -> XPath funciona correctamente
         con elementos reales de la app.
         """
+        logger.info("🚀 Iniciando test de validación de XPaths...")
+        logger.info("📱 Esperando a que la app cargue completamente...")
+        
+        # Esperar a que la app cargue (pasar splash screen)
+        # Primero, dar tiempo para que la app inicie (multiplicado por 4)
+        logger.info("   Esperando 12 segundos para que la app inicie...")
+        time.sleep(12)
+        
+        # Capturar screenshot inicial
+        allure_attach_screenshot(driver_setup, "01_xpath_test_inicial")
+        
+        # Intentar esperar a que aparezcan elementos interactuables
+        # Esto indica que la app ya pasó el splash screen
+        max_attempts = 10
+        elements_found = False
+        parser = UIParser()
+        
+        logger.info("   Buscando elementos interactuables en la pantalla...")
+        for attempt in range(max_attempts):
+            try:
+                logger.debug(f"   Intento {attempt + 1}/{max_attempts}: Obteniendo page_source...")
+                xml_source = driver_setup.page_source
+                
+                logger.debug(f"   Intento {attempt + 1}/{max_attempts}: XML obtenido ({len(xml_source)} caracteres)")
+                logger.debug(f"   Intento {attempt + 1}/{max_attempts}: Parseando con UIParser...")
+                elements = parser.parse_screen(xml_source)
+                
+                logger.info(f"   Intento {attempt + 1}/{max_attempts}: Se encontraron {len(elements)} elementos interactuables")
+                
+                if len(elements) > 0:
+                    logger.info(f"   ✓ App cargada! Se encontraron {len(elements)} elementos interactuables (intento {attempt + 1})")
+                    elements_found = True
+                    break
+                else:
+                    logger.info(f"   ⏳ Esperando... (intento {attempt + 1}/{max_attempts}) - No hay elementos aún")
+                    logger.debug(f"   Intento {attempt + 1}/{max_attempts}: XML sample (primeros 500 chars): {xml_source[:500]}")
+                    time.sleep(8)  # Multiplicado por 4 (era 2)
+            except Exception as e:
+                logger.warning(f"   ⚠ Error en intento {attempt + 1}: {type(e).__name__}: {e}")
+                logger.debug(f"   Traceback: {traceback.format_exc()}")
+                time.sleep(8)  # Multiplicado por 4 (era 2)
+        
+        if not elements_found:
+            # Capturar evidencia antes de fallar
+            logger.error("   ❌ No se encontraron elementos después de esperar")
+            logger.error(f"   Se intentó {max_attempts} veces con esperas de 8 segundos")
+            allure_attach_debug_snapshot(driver_setup, "error_no_elementos_xpath")
+            
+            # Intentar obtener el XML final para debugging
+            try:
+                final_xml = driver_setup.page_source
+                logger.error(f"   XML final obtenido: {len(final_xml)} caracteres")
+                logger.error(f"   Primeros 1000 caracteres del XML: {final_xml[:1000]}")
+            except Exception as e:
+                logger.error(f"   No se pudo obtener XML final: {e}")
+            
+            pytest.fail("No se encontraron elementos interactuables después de esperar. La app puede no haber cargado correctamente.")
+        
+        # Capturar screenshot y XML de la pantalla cargada
+        allure_attach_debug_snapshot(driver_setup, "02_pantalla_cargada_xpath")
+        
         logger.info("🔍 Obteniendo XML y parseando elementos...")
         xml_source = driver_setup.page_source
-        parser = UIParser()
         elements = parser.parse_screen(xml_source)
         
         # Verificar que hay elementos
         if len(elements) == 0:
-            pytest.skip("No hay elementos interactuables en la pantalla actual")
+            logger.error("❌ No se encontraron elementos después de la espera inicial")
+            allure_attach_debug_snapshot(driver_setup, "error_sin_elementos")
+            pytest.fail("No hay elementos interactuables en la pantalla actual después de esperar a que la app cargue")
         
         logger.info(f"✓ {len(elements)} elementos encontrados, validando XPaths...")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"📋 ELEMENTOS ENCONTRADOS (primeros 10):")
+        logger.info(f"{'='*60}")
+        for elem in elements[:10]:
+            logger.info(f"   [{elem['id']:3d}] {elem['role']:8s} - '{elem['label'][:50]}'")
+        logger.info(f"{'='*60}\n")
         
         # Verificar que podemos obtener XPath para cada elemento
         valid_xpaths = 0
         invalid_xpaths = 0
         
-        for element in elements:
+        logger.info(f"🔗 Validando XPaths para {len(elements)} elementos...")
+        for idx, element in enumerate(elements):
             element_id = element["id"]
+            logger.debug(f"   Procesando elemento {idx + 1}/{len(elements)} (ID: {element_id})...")
+            
             xpath = parser.get_element_by_id(element_id)
             
             assert xpath is not None, f"XPath no encontrado para ID {element_id}"
             assert len(xpath) > 0, f"XPath vacío para ID {element_id}"
             assert xpath.startswith("//"), f"XPath inválido: {xpath}"
             
+            logger.debug(f"   Elemento ID {element_id}: XPath obtenido = {xpath}")
+            
             # Intentar encontrar el elemento usando el XPath
             try:
+                logger.debug(f"   Elemento ID {element_id}: Buscando en el driver con XPath...")
                 found_elements = driver_setup.find_elements("xpath", xpath)
+                logger.debug(f"   Elemento ID {element_id}: Se encontraron {len(found_elements)} elementos con este XPath")
+                
                 if len(found_elements) > 0:
                     valid_xpaths += 1
-                    logger.debug(f"  ✓ XPath válido para ID {element_id}: {xpath}")
+                    logger.info(f"   ✓ [{element_id:3d}] XPath válido: {xpath[:80]}...")
                 else:
                     invalid_xpaths += 1
-                    logger.warning(f"  ⚠ XPath no encontró elementos para ID {element_id}: {xpath}")
+                    logger.warning(f"   ⚠ [{element_id:3d}] XPath no encontró elementos: {xpath[:80]}...")
             except Exception as e:
                 invalid_xpaths += 1
-                logger.warning(f"  ⚠ Error validando XPath para ID {element_id}: {xpath} - {e}")
+                logger.warning(f"   ⚠ [{element_id:3d}] Error validando XPath: {xpath[:80]}... - {type(e).__name__}: {e}")
+                logger.debug(f"   Traceback completo: {traceback.format_exc()}")
         
         logger.info(f"\n{'='*60}")
         logger.info(f"📊 VALIDACIÓN DE XPATHS:")
-        logger.info(f"   ✓ Válidos: {valid_xpaths}/{len(elements)}")
-        logger.info(f"   ⚠ No válidos: {invalid_xpaths}/{len(elements)}")
+        logger.info(f"   ✓ Válidos: {valid_xpaths}/{len(elements)} ({valid_xpaths*100/len(elements):.1f}%)")
+        logger.info(f"   ⚠ No válidos: {invalid_xpaths}/{len(elements)} ({invalid_xpaths*100/len(elements):.1f}%)")
         logger.info(f"{'='*60}")
 
     @pytest.mark.usefixtures("driver_setup")
@@ -139,35 +229,66 @@ class TestUIParserIntegration:
         Este test verifica que el parser puede procesar pantallas complejas
         con múltiples elementos, layouts anidados, etc.
         """
+        logger.info("🚀 Iniciando test de UI compleja...")
+        logger.info("📱 Esperando a que la app cargue completamente...")
+        
+        # Esperar a que la app cargue (multiplicado por 4)
+        logger.info("   Esperando 12 segundos para que la app inicie...")
+        time.sleep(12)
+        
+        # Capturar screenshot inicial
+        allure_attach_screenshot(driver_setup, "01_complex_ui_test_inicial")
+        
+        logger.info("📱 Obteniendo XML de la pantalla actual...")
+        logger.debug("   Obteniendo page_source del driver...")
         xml_source = driver_setup.page_source
+        logger.debug(f"   XML obtenido: {len(xml_source)} caracteres")
+        
+        logger.info("🔍 Creando instancia de UIParser...")
         parser = UIParser()
         
         # Parsear múltiples veces para verificar consistencia
+        logger.info("🔍 Parseando XML (primera vez)...")
         elements1 = parser.parse_screen(xml_source)
+        logger.info(f"   ✓ Primera pasada: {len(elements1)} elementos encontrados")
+        
+        logger.info("🔍 Limpiando parser y parseando nuevamente...")
         parser.clear()
         elements2 = parser.parse_screen(xml_source)
+        logger.info(f"   ✓ Segunda pasada: {len(elements2)} elementos encontrados")
         
         # Verificar que los resultados son consistentes
-        assert len(elements1) == len(elements2), "El parser debe ser determinístico"
+        logger.info("🔍 Verificando consistencia entre pasadas...")
+        assert len(elements1) == len(elements2), f"El parser debe ser determinístico: primera pasada={len(elements1)}, segunda pasada={len(elements2)}"
+        logger.info("   ✓ Parser es determinístico")
         
         # Verificar estructura de elementos
-        for element in elements1:
+        logger.info("🔍 Verificando estructura de elementos...")
+        for idx, element in enumerate(elements1):
+            logger.debug(f"   Verificando elemento {idx + 1}/{len(elements1)} (ID: {element.get('id', 'N/A')})...")
+            
             # Verificar que todos los campos requeridos están presentes
             required_fields = ["id", "role", "label", "checked"]
             for field in required_fields:
-                assert field in element, f"Campo '{field}' faltante en elemento {element['id']}"
+                assert field in element, f"Campo '{field}' faltante en elemento {element.get('id', 'N/A')}"
             
             # Verificar tipos de datos
-            assert isinstance(element["id"], int)
-            assert isinstance(element["role"], str)
-            assert isinstance(element["label"], str)
-            assert element["checked"] is None or isinstance(element["checked"], bool)
+            assert isinstance(element["id"], int), f"ID debe ser int, es {type(element['id'])}"
+            assert isinstance(element["role"], str), f"Role debe ser str, es {type(element['role'])}"
+            assert isinstance(element["label"], str), f"Label debe ser str, es {type(element['label'])}"
+            assert element["checked"] is None or isinstance(element["checked"], bool), f"Checked debe ser None o bool, es {type(element['checked'])}"
+        
+        logger.info(f"   ✓ Estructura de {len(elements1)} elementos verificada correctamente")
         
         # Verificar que no hay elementos duplicados (mismo ID)
+        logger.info("🔍 Verificando que no hay IDs duplicados...")
         ids = [elem["id"] for elem in elements1]
-        assert len(ids) == len(set(ids)), "No debe haber IDs duplicados"
+        assert len(ids) == len(set(ids)), f"No debe haber IDs duplicados. IDs encontrados: {ids}"
+        logger.info("   ✓ No hay IDs duplicados")
         
-        print(f"\n✓ Parser maneja correctamente UI compleja con {len(elements1)} elementos")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"✅ Parser maneja correctamente UI compleja con {len(elements1)} elementos")
+        logger.info(f"{'='*60}")
 
     @pytest.mark.usefixtures("driver_setup")
     def test_parse_login_screen_from_real_app(self, driver_setup):
@@ -193,9 +314,9 @@ class TestUIParserIntegration:
         # Opción 2: Esperar un tiempo fijo para splash screen
         # Opción 3: Esperar a que aparezca un elemento específico
         
-        # Primero, dar tiempo para que la app inicie
-        logger.info("   Esperando 3 segundos para que la app inicie...")
-        time.sleep(3)
+        # Primero, dar tiempo para que la app inicie (multiplicado por 4)
+        logger.info("   Esperando 12 segundos para que la app inicie...")
+        time.sleep(12)
 
         # Capturar screenshot inicial (splash screen o cargando)
         allure_attach_screenshot(driver_setup, "01_app_iniciando")
@@ -217,10 +338,12 @@ class TestUIParserIntegration:
                     break
                 else:
                     logger.info(f"   ⏳ Esperando... (intento {attempt + 1}/{max_attempts})")
-                    time.sleep(2)
+                    logger.debug(f"   Intento {attempt + 1}/{max_attempts}: XML sample (primeros 500 chars): {xml_source[:500]}")
+                    time.sleep(8)  # Multiplicado por 4 (era 2)
             except Exception as e:
-                logger.warning(f"   ⚠ Error en intento {attempt + 1}: {e}")
-                time.sleep(2)
+                logger.warning(f"   ⚠ Error en intento {attempt + 1}: {type(e).__name__}: {e}")
+                logger.debug(f"   Traceback: {traceback.format_exc()}")
+                time.sleep(8)  # Multiplicado por 4 (era 2)
         
         if not elements_found:
             # Capturar evidencia antes de fallar

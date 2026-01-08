@@ -117,9 +117,9 @@ class TestRunTestPlan:
         ]
         mock_ui_parser_class.return_value = mock_ui_parser
 
-        # Mock AppiumSkills
+        # Mock AppiumSkills - usar get_screen_tree_stable (el método real usado)
         mock_skills = Mock()
-        mock_skills.get_screen_tree.return_value = "<hierarchy/>"
+        mock_skills.get_screen_tree_stable.return_value = "<hierarchy/>"
         mock_skills.touch_element_by_id.return_value = "Success: Clicked"
         mock_skills_class.return_value = mock_skills
 
@@ -165,7 +165,7 @@ class TestRunTestPlan:
         mock_ui_parser_class.return_value = mock_ui_parser
 
         mock_skills = Mock()
-        mock_skills.get_screen_tree.return_value = "<hierarchy/>"
+        mock_skills.get_screen_tree_stable.return_value = "<hierarchy/>"
         mock_skills.touch_element_by_id.return_value = "Error: Element not found"
         mock_skills.get_action_stats.return_value = {}
         mock_skills_class.return_value = mock_skills
@@ -310,7 +310,8 @@ class TestExecuteSingleToolCall:
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        mock_skills = Mock()
+        # Usar MagicMock con unsafe=True para permitir métodos que empiezan con "assert_"
+        mock_skills = MagicMock(unsafe=True)
         mock_skills.assert_screen_contains.return_value = (True, "Success: Text found")
         mock_skills_class.return_value = mock_skills
 
@@ -336,7 +337,8 @@ class TestExecuteSingleToolCall:
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        mock_skills = Mock()
+        # Usar MagicMock con unsafe=True para permitir métodos que empiezan con "assert_"
+        mock_skills = MagicMock(unsafe=True)
         mock_skills.assert_screen_contains.return_value = (False, "Error: Text not found")
         mock_skills_class.return_value = mock_skills
 
