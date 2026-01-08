@@ -56,6 +56,14 @@ class Config:
     DEFAULT_WAIT_TIMEOUT: int = int(os.getenv("DEFAULT_WAIT_TIMEOUT", "10"))
     # IMPLICIT_WAIT: en SEGUNDOS (se usa directamente con driver.implicitly_wait())
     IMPLICIT_WAIT: int = int(os.getenv("IMPLICIT_WAIT", "5"))
+    
+    # Configuración de espera por estabilidad de UI (manejo de pantallas de carga)
+    # UI_STABILITY_TIMEOUT: Máximo tiempo de espera para que la UI se estabilice (segundos)
+    UI_STABILITY_TIMEOUT: float = float(os.getenv("UI_STABILITY_TIMEOUT", "10.0"))
+    # UI_STABILITY_INTERVAL: Intervalo entre verificaciones de estabilidad (segundos)
+    UI_STABILITY_INTERVAL: float = float(os.getenv("UI_STABILITY_INTERVAL", "0.3"))
+    # UI_STABILITY_THRESHOLD: Número de verificaciones consecutivas sin cambios requeridas
+    UI_STABILITY_THRESHOLD: int = int(os.getenv("UI_STABILITY_THRESHOLD", "2"))
 
     @classmethod
     def debug_print_config(cls) -> None:
@@ -99,6 +107,13 @@ class Config:
         logger.info("-" * 40)
         logger.info(f"  DEFAULT_WAIT_TIMEOUT: {cls.DEFAULT_WAIT_TIMEOUT} minutos ({cls.DEFAULT_WAIT_TIMEOUT * 60} segundos)")
         logger.info(f"  IMPLICIT_WAIT: {cls.IMPLICIT_WAIT} segundos")
+        
+        # UI Stability (manejo de pantallas de carga)
+        logger.info("-" * 40)
+        logger.info("  UI Stability (pantallas de carga):")
+        logger.info(f"    UI_STABILITY_TIMEOUT: {cls.UI_STABILITY_TIMEOUT}s")
+        logger.info(f"    UI_STABILITY_INTERVAL: {cls.UI_STABILITY_INTERVAL}s")
+        logger.info(f"    UI_STABILITY_THRESHOLD: {cls.UI_STABILITY_THRESHOLD} checks")
         logger.info("=" * 70)
 
     @classmethod

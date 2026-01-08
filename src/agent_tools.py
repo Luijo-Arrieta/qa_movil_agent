@@ -10,6 +10,7 @@ from appium.webdriver.common.appiumby import AppiumBy
 from appium.webdriver import Remote
 
 from src.ui_parser import UIParser
+from src.config import Config
 
 # Configurar logging para este módulo
 logger = logging.getLogger(__name__)
@@ -19,7 +20,43 @@ class AppiumSkills:
     """
     Clase que proporciona métodos de alto nivel para interactuar con Appium.
     Integrada con UIParser para usar IDs temporales de elementos.
+    
+    Incluye capacidades de gestión multi-app para tests que requieren
+    cambiar entre múltiples aplicaciones (ej: Customer ↔ Technical).
     """
+    
+    # Estados de app según Appium (queryAppState)
+    APP_STATE = {
+        "NOT_INSTALLED": 0,      # App no instalada en el dispositivo
+        "NOT_RUNNING": 1,        # App instalada pero no ejecutándose
+        "BACKGROUND_SUSPENDED": 2,  # En background, proceso suspendido
+        "BACKGROUND": 3,         # En background, proceso activo
+        "FOREGROUND": 4,         # En primer plano (visible)
+    }
+    
+    # Mapeo inverso para logs legibles
+    APP_STATE_NAMES = {
+        0: "NOT_INSTALLED",
+        1: "NOT_RUNNING", 
+        2: "BACKGROUND_SUSPENDED",
+        3: "BACKGROUND",
+        4: "FOREGROUND",
+    }
+    
+    # Clases de elementos de carga comunes en Android
+    LOADING_INDICATORS = [
+        "android.widget.ProgressBar",
+        "android.widget.ProgressIndicator",
+        "com.google.android.material.progressindicator",
+        "CircularProgressIndicator",
+        "LinearProgressIndicator",
+    ]
+    
+    # Textos comunes en pantallas de carga
+    LOADING_TEXTS = [
+        "Cargando", "Loading", "Please wait", "Espere", "Procesando",
+        "Processing", "Aguarde", "Un momento", "Wait",
+    ]
 
     def __init__(self, driver: Remote, ui_parser: UIParser):
         """
@@ -33,8 +70,16 @@ class AppiumSkills:
         
         self.driver = driver
         self.ui_parser = ui_parser
-        self.default_wait_timeout = 5
+        self.default_wait_timeout = Config.IMPLICIT_WAIT
         self.min_wait_timeout = 0.3
+        
+        # Configuración de espera por estabilidad de UI (desde Config)
+        self.ui_stability_timeout = Config.UI_STABILITY_TIMEOUT
+        self.ui_stability_interval = Config.UI_STABILITY_INTERVAL
+        self.ui_stability_threshold = Config.UI_STABILITY_THRESHOLD
+        
+        # Tracking de app activa (para gestión multi-app)
+        self._current_app_package: Optional[str] = None
         
         # Estadísticas de acciones
         self._action_stats = {
@@ -42,6 +87,7 @@ class AppiumSkills:
             "successful_actions": 0,
             "failed_actions": 0,
             "actions_by_type": {},
+            "total_wait_time": 0.0,  # Tiempo total esperando UI stability
         }
         
         # Verificar que el driver esté activo
@@ -54,6 +100,9 @@ class AppiumSkills:
         
         logger.debug(f"AGENT_TOOLS: default_wait_timeout={self.default_wait_timeout}s, "
                     f"min_wait_timeout={self.min_wait_timeout}s")
+        logger.debug(f"AGENT_TOOLS: ui_stability_timeout={self.ui_stability_timeout}s, "
+                    f"ui_stability_interval={self.ui_stability_interval}s, "
+                    f"ui_stability_threshold={self.ui_stability_threshold}")
 
     def get_screen_tree(self) -> str:
         """
@@ -85,6 +134,212 @@ class AppiumSkills:
             logger.error(f"AGENT_TOOLS ERROR: {type(e).__name__}: {str(e)}")
             logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
             raise
+
+    # =========================================================================
+    # MÉTODOS DE ESPERA INTELIGENTE PARA PANTALLAS DE CARGA/TRANSICIONES
+    # =========================================================================
+
+    def _is_loading_screen(self, page_source: str) -> tuple[bool, str]:
+        """
+        Detecta si la pantalla actual muestra un indicador de carga.
+        
+        Args:
+            page_source: XML de la pantalla actual
+            
+        Returns:
+            Tupla (is_loading, reason): Si está cargando y por qué
+        """
+        # Detectar por clase de elemento de carga
+        for indicator_class in self.LOADING_INDICATORS:
+            if indicator_class.lower() in page_source.lower():
+                return True, f"Loading indicator found: {indicator_class}"
+        
+        # Detectar por texto de carga
+        for loading_text in self.LOADING_TEXTS:
+            # Buscar en atributos text o content-desc
+            if f'text="{loading_text}"' in page_source or \
+               f"text='{loading_text}'" in page_source or \
+               f'content-desc="{loading_text}"' in page_source:
+                return True, f"Loading text found: '{loading_text}'"
+        
+        return False, "No loading indicators detected"
+
+    def _get_page_source_hash(self, page_source: str) -> int:
+        """
+        Genera un hash simple del page_source para comparar cambios.
+        Ignora atributos que cambian constantemente (como focused, bounds exactos).
+        
+        Args:
+            page_source: XML de la pantalla
+            
+        Returns:
+            Hash numérico del contenido relevante
+        """
+        import re
+        # Remover atributos volátiles que no indican cambio real de UI
+        cleaned = re.sub(r'focused="[^"]*"', '', page_source)
+        cleaned = re.sub(r'selected="[^"]*"', '', cleaned)
+        # Simplificar bounds (solo mantener posición aproximada)
+        cleaned = re.sub(r'bounds="\[\d+,\d+\]\[\d+,\d+\]"', 'bounds="[X]"', cleaned)
+        return hash(cleaned)
+
+    def wait_for_ui_stable(self, timeout: Optional[float] = None) -> tuple[bool, float, str]:
+        """
+        Espera hasta que la UI se estabilice (deje de cambiar).
+        
+        Esta función es crucial para manejar:
+        - Pantallas de carga/spinners
+        - Transiciones entre pantallas
+        - Animaciones de UI
+        - Elementos que aparecen con delay
+        
+        Estrategia:
+        1. Si detecta un loading indicator, espera a que desaparezca
+        2. Toma snapshots del page_source periódicamente
+        3. Cuando N snapshots consecutivos son iguales, considera la UI estable
+        
+        Args:
+            timeout: Tiempo máximo de espera (usa self.ui_stability_timeout si no se especifica)
+            
+        Returns:
+            Tupla (is_stable, wait_time_seconds, reason):
+            - is_stable: True si la UI se estabilizó, False si timeout
+            - wait_time_seconds: Tiempo que esperó
+            - reason: Descripción del resultado
+        """
+        timeout = timeout or self.ui_stability_timeout
+        start_time = time.time()
+        
+        logger.debug(f"AGENT_TOOLS: ⏳ Esperando estabilidad de UI (timeout={timeout}s, "
+                    f"threshold={self.ui_stability_threshold} checks, "
+                    f"interval={self.ui_stability_interval}s)")
+        
+        previous_hash = None
+        stable_count = 0
+        check_count = 0
+        
+        while (time.time() - start_time) < timeout:
+            check_count += 1
+            
+            try:
+                # Obtener estado actual
+                page_source = self.driver.page_source
+                
+                # Verificar si hay pantalla de carga
+                is_loading, loading_reason = self._is_loading_screen(page_source)
+                if is_loading:
+                    logger.debug(f"AGENT_TOOLS: 🔄 Check #{check_count}: {loading_reason}")
+                    stable_count = 0  # Reset contador de estabilidad
+                    time.sleep(self.ui_stability_interval)
+                    continue
+                
+                # Calcular hash del estado actual
+                current_hash = self._get_page_source_hash(page_source)
+                
+                if previous_hash == current_hash:
+                    stable_count += 1
+                    logger.debug(f"AGENT_TOOLS: ✓ Check #{check_count}: UI sin cambios "
+                               f"({stable_count}/{self.ui_stability_threshold})")
+                    
+                    if stable_count >= self.ui_stability_threshold:
+                        elapsed = time.time() - start_time
+                        self._action_stats["total_wait_time"] += elapsed
+                        logger.info(f"AGENT_TOOLS: ✓ UI estable después de {elapsed:.2f}s "
+                                   f"({check_count} checks)")
+                        return True, elapsed, f"UI stable after {check_count} checks"
+                else:
+                    if stable_count > 0:
+                        logger.debug(f"AGENT_TOOLS: 🔄 Check #{check_count}: UI cambió, "
+                                   f"reset contador (era {stable_count})")
+                    else:
+                        logger.debug(f"AGENT_TOOLS: 🔄 Check #{check_count}: UI cambió")
+                    stable_count = 0
+                
+                previous_hash = current_hash
+                time.sleep(self.ui_stability_interval)
+                
+            except Exception as e:
+                logger.warning(f"AGENT_TOOLS WARNING: Error en check #{check_count}: {e}")
+                time.sleep(self.ui_stability_interval)
+                continue
+        
+        # Timeout alcanzado
+        elapsed = time.time() - start_time
+        self._action_stats["total_wait_time"] += elapsed
+        logger.warning(f"AGENT_TOOLS: ⚠️ Timeout esperando UI estable después de {elapsed:.2f}s "
+                      f"({check_count} checks, stable_count={stable_count})")
+        return False, elapsed, f"Timeout after {elapsed:.2f}s ({check_count} checks)"
+
+    def wait_for_loading_complete(self, timeout: Optional[float] = None) -> tuple[bool, float]:
+        """
+        Espera específicamente a que desaparezcan los indicadores de carga.
+        
+        Útil cuando sabes que una acción va a mostrar un loading y quieres
+        esperar solo a que termine, sin verificar estabilidad completa.
+        
+        Args:
+            timeout: Tiempo máximo de espera
+            
+        Returns:
+            Tupla (loading_complete, wait_time_seconds)
+        """
+        timeout = timeout or self.ui_stability_timeout
+        start_time = time.time()
+        
+        logger.debug(f"AGENT_TOOLS: ⏳ Esperando que termine pantalla de carga (timeout={timeout}s)")
+        
+        check_count = 0
+        while (time.time() - start_time) < timeout:
+            check_count += 1
+            
+            try:
+                page_source = self.driver.page_source
+                is_loading, reason = self._is_loading_screen(page_source)
+                
+                if not is_loading:
+                    elapsed = time.time() - start_time
+                    self._action_stats["total_wait_time"] += elapsed
+                    logger.info(f"AGENT_TOOLS: ✓ Carga completa después de {elapsed:.2f}s "
+                               f"({check_count} checks)")
+                    return True, elapsed
+                
+                logger.debug(f"AGENT_TOOLS: 🔄 Check #{check_count}: Aún cargando - {reason}")
+                time.sleep(self.ui_stability_interval)
+                
+            except Exception as e:
+                logger.warning(f"AGENT_TOOLS WARNING: Error verificando loading: {e}")
+                time.sleep(self.ui_stability_interval)
+        
+        elapsed = time.time() - start_time
+        self._action_stats["total_wait_time"] += elapsed
+        logger.warning(f"AGENT_TOOLS: ⚠️ Timeout esperando fin de carga después de {elapsed:.2f}s")
+        return False, elapsed
+
+    def get_screen_tree_stable(self, timeout: Optional[float] = None) -> str:
+        """
+        Obtiene el XML de la pantalla DESPUÉS de esperar estabilidad.
+        
+        Este método combina wait_for_ui_stable + get_screen_tree para
+        garantizar que el XML retornado corresponde a una UI estable,
+        no a una pantalla de transición o carga.
+        
+        Args:
+            timeout: Tiempo máximo de espera para estabilidad
+            
+        Returns:
+            XML de la pantalla estable
+        """
+        logger.debug("AGENT_TOOLS: Obteniendo screen tree con espera de estabilidad...")
+        
+        # Esperar estabilidad
+        is_stable, wait_time, reason = self.wait_for_ui_stable(timeout)
+        
+        if not is_stable:
+            logger.warning(f"AGENT_TOOLS WARNING: UI no estabilizó ({reason}), "
+                          "procediendo de todos modos")
+        
+        # Obtener XML final
+        return self.get_screen_tree()
 
     def touch_element_by_id(self, element_id: int) -> str:
         """
@@ -481,3 +736,259 @@ class AppiumSkills:
 
         return "Error: Could not find popup close button"
 
+    # =========================================================================
+    # GESTIÓN MULTI-APP - Métodos para cambiar entre múltiples aplicaciones
+    # =========================================================================
+
+    def query_app_state(self, app_package: str) -> tuple[int, str]:
+        """
+        Consulta el estado actual de una app.
+        
+        Args:
+            app_package: Package de la app (ej: 'com.example.app')
+            
+        Returns:
+            Tupla (state_code, state_name):
+            - 0: NOT_INSTALLED - App no instalada
+            - 1: NOT_RUNNING - Instalada pero no corriendo
+            - 2: BACKGROUND_SUSPENDED - En background, suspendida
+            - 3: BACKGROUND - En background, activa
+            - 4: FOREGROUND - En primer plano
+        """
+        action_name = "query_app_state"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        
+        logger.info(f"AGENT_TOOLS: 🔍 Ejecutando {action_name}(app_package='{app_package}')")
+        
+        try:
+            state = self.driver.query_app_state(app_package)
+            state_name = self.APP_STATE_NAMES.get(state, f"UNKNOWN({state})")
+            
+            logger.info(f"AGENT_TOOLS: ✓ Estado de '{app_package}': {state_name} ({state})")
+            self._action_stats["successful_actions"] += 1
+            return state, state_name
+            
+        except Exception as e:
+            error_msg = f"Error consultando estado de '{app_package}': {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
+            self._action_stats["failed_actions"] += 1
+            return -1, f"ERROR: {str(e)}"
+
+    def activate_app(self, app_package: str) -> str:
+        """
+        Activa (abre/trae al primer plano) una app instalada.
+        
+        Esta es la operación fundamental para abrir una app o traerla
+        al foreground si ya está corriendo en background.
+        
+        Args:
+            app_package: Package de la app (ej: 'com.imagineapps.gofixiicliente')
+            
+        Returns:
+            Mensaje de éxito o error
+        """
+        action_name = "activate_app"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        
+        logger.info(f"AGENT_TOOLS: 🚀 Ejecutando {action_name}(app_package='{app_package}')")
+        
+        start_time = time.time()
+        try:
+            # Primero verificar el estado de la app
+            state, state_name = self.query_app_state(app_package)
+            logger.debug(f"AGENT_TOOLS: Estado actual de la app: {state_name}")
+            
+            if state == self.APP_STATE["NOT_INSTALLED"]:
+                error_msg = f"Error: App '{app_package}' NO está instalada en el dispositivo"
+                logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+                self._action_stats["failed_actions"] += 1
+                return error_msg
+            
+            # Activar la app (traerla al foreground)
+            logger.debug(f"AGENT_TOOLS: Activando app '{app_package}'...")
+            self.driver.activate_app(app_package)
+            
+            # Actualizar tracking de app actual
+            self._current_app_package = app_package
+            
+            # Pausa para estabilización de la UI
+            time.sleep(1.0)
+            
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            success_msg = f"Success: Activated app '{app_package}'"
+            logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+            self._action_stats["successful_actions"] += 1
+            return success_msg
+            
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Error: Could not activate app '{app_package}': {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+
+    def terminate_app(self, app_package: str) -> str:
+        """
+        Termina (cierra completamente) una app.
+        
+        La app se cierra y deja de ejecutarse. Esto libera recursos
+        y garantiza un estado limpio la próxima vez que se abra.
+        
+        Args:
+            app_package: Package de la app a cerrar
+            
+        Returns:
+            Mensaje de éxito o error
+        """
+        action_name = "terminate_app"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        
+        logger.info(f"AGENT_TOOLS: 🛑 Ejecutando {action_name}(app_package='{app_package}')")
+        
+        start_time = time.time()
+        try:
+            # Terminar la app
+            logger.debug(f"AGENT_TOOLS: Terminando app '{app_package}'...")
+            result = self.driver.terminate_app(app_package)
+            
+            # Actualizar tracking si era la app activa
+            if self._current_app_package == app_package:
+                self._current_app_package = None
+            
+            time.sleep(self.min_wait_timeout)
+            
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            
+            if result:
+                success_msg = f"Success: Terminated app '{app_package}'"
+                logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+                self._action_stats["successful_actions"] += 1
+                return success_msg
+            else:
+                # terminate_app retorna False si la app no estaba corriendo
+                msg = f"Success: App '{app_package}' was not running (nothing to terminate)"
+                logger.info(f"AGENT_TOOLS: ℹ️ {msg}")
+                self._action_stats["successful_actions"] += 1
+                return msg
+            
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Error: Could not terminate app '{app_package}': {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+
+    def switch_to_app(self, app_package: str) -> str:
+        """
+        Cambia a otra app TERMINANDO la app actual.
+        
+        Este método:
+        1. Cierra completamente la app actual (si hay una)
+        2. Abre la nueva app
+        
+        Útil cuando:
+        - Necesitas estado limpio en la app anterior
+        - Quieres liberar memoria
+        - No necesitas volver a la app anterior
+        
+        Args:
+            app_package: Package de la app destino
+            
+        Returns:
+            Mensaje de éxito o error
+        """
+        action_name = "switch_to_app"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        
+        logger.info(f"AGENT_TOOLS: 🔄 Ejecutando {action_name}(app_package='{app_package}')")
+        logger.debug(f"AGENT_TOOLS: App actual: {self._current_app_package or 'ninguna'}")
+        
+        start_time = time.time()
+        
+        # Paso 1: Terminar la app actual si existe y es diferente
+        if self._current_app_package and self._current_app_package != app_package:
+            logger.debug(f"AGENT_TOOLS: Terminando app actual '{self._current_app_package}'...")
+            terminate_result = self.terminate_app(self._current_app_package)
+            if "Error" in terminate_result:
+                logger.warning(f"AGENT_TOOLS WARNING: Problema al terminar app: {terminate_result}")
+                # Continuamos de todos modos
+        
+        # Paso 2: Activar la nueva app
+        activate_result = self.activate_app(app_package)
+        
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        
+        if "Error" in activate_result:
+            logger.error(f"AGENT_TOOLS ERROR: Fallo al cambiar a '{app_package}'")
+            return activate_result
+        
+        success_msg = f"Success: Switched to app '{app_package}' (previous app terminated)"
+        logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+        return success_msg
+
+    def switch_to_app_keep_background(self, app_package: str) -> str:
+        """
+        Cambia a otra app MANTENIENDO la app actual en background.
+        
+        Este método:
+        1. Deja la app actual corriendo en background
+        2. Activa (trae al foreground) la nueva app
+        
+        Útil cuando:
+        - Necesitas hacer ida y vuelta entre apps
+        - La app anterior debe mantener su sesión/estado
+        - Quieres cambios rápidos sin reiniciar login
+        
+        Args:
+            app_package: Package de la app destino
+            
+        Returns:
+            Mensaje de éxito o error
+        """
+        action_name = "switch_to_app_keep_background"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        
+        logger.info(f"AGENT_TOOLS: 🔀 Ejecutando {action_name}(app_package='{app_package}')")
+        logger.debug(f"AGENT_TOOLS: App actual: {self._current_app_package or 'ninguna'}")
+        
+        start_time = time.time()
+        
+        # Verificar si ya estamos en la app solicitada
+        if self._current_app_package == app_package:
+            msg = f"App '{app_package}' already in foreground"
+            logger.info(f"AGENT_TOOLS: ℹ️ {msg}")
+            return f"Success: {msg}"
+        
+        # Log de app que queda en background
+        if self._current_app_package:
+            logger.debug(f"AGENT_TOOLS: App '{self._current_app_package}' quedará en background")
+        
+        # Activar la nueva app (la actual queda automáticamente en background)
+        activate_result = self.activate_app(app_package)
+        
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        
+        if "Error" in activate_result:
+            logger.error(f"AGENT_TOOLS ERROR: Fallo al cambiar a '{app_package}'")
+            return activate_result
+        
+        success_msg = f"Success: Switched to app '{app_package}' (previous app in background)"
+        logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+        return success_msg
+
+    def get_current_app_package(self) -> Optional[str]:
+        """
+        Retorna el package de la app actualmente activa (según tracking interno).
+        
+        Returns:
+            Package de la app activa o None si no hay ninguna
+        """
+        return self._current_app_package

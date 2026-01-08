@@ -45,17 +45,33 @@ poetry install
 # Run all tests
 poetry run pytest
 
-# Run specific test file
-poetry run pytest tests/test_ui_parser.py
+# Run only unit tests (fast, no Appium needed)
+poetry run pytest tests/unit -v
+
+# Run only E2E/Spec tests (requires Appium + device)
+poetry run pytest tests/specs -v
 
 # Run with verbose output
 poetry run pytest -v
 
-# Run only unit tests
+# Run by marker
 poetry run pytest -m unit
-
-# Run only integration tests (requires Appium + device)
 poetry run pytest -m integration
+```
+
+## Test Structure
+
+```
+tests/
+├── conftest.py              # Shared config (markers, logging)
+├── unit/                    # Unit tests (no Appium required)
+│   ├── conftest.py          # Unit test fixtures
+│   └── test_ui_parser.py    # UIParser unit tests
+└── specs/                   # E2E tests (require Appium + device)
+    ├── conftest.py          # E2E fixtures (driver_setup, Allure)
+    ├── test_ui_parser_integration.py
+    └── examples/            # User test examples
+        └── test_example.py
 ```
 
 ## Environment Setup
@@ -118,11 +134,44 @@ For communication with LLMs, UIParser can output in **TOON (Token-Oriented Objec
 ## AI Tools Available
 
 The LLM can use these tools via function calling:
+
+### UI Interaction Tools
 - `touch_element_by_id(element_id)` - Click element
 - `fill_field_by_id(element_id, value)` - Type text in input
 - `scroll(direction)` - Scroll up/down
 - `go_back()` - Press back button
 - `assert_screen_contains(text)` - Verify text presence
+
+### Multi-App Management Tools
+For tests requiring multiple apps (e.g., Customer ↔ Technical flows):
+- `activate_app(app_package)` - Open/bring app to foreground
+- `terminate_app(app_package)` - Close app completely
+- `switch_to_app(app_package)` - Switch to app, closing current one (clean state)
+- `switch_to_app_keep_background(app_package)` - Switch keeping current in background (fast round-trips)
+
+**App States (Appium):**
+| Code | State | Description |
+|------|-------|-------------|
+| 0 | NOT_INSTALLED | App not installed |
+| 1 | NOT_RUNNING | Installed but not running |
+| 2 | BACKGROUND_SUSPENDED | Background, suspended |
+| 3 | BACKGROUND | Background, active |
+| 4 | FOREGROUND | In foreground (visible) |
+
+### Multi-App Test Example
+
+```python
+test_plan = [
+    "Abrir app Customer (com.example.customer)",
+    "Hacer login con email 'user@test.com' y password '123456'",
+    "Crear una solicitud de servicio",
+    "Cambiar a app Technical (com.example.technical) manteniendo Customer en background",
+    "Hacer login como técnico",
+    "Aceptar la solicitud",
+    "Volver a app Customer",
+    "Verificar que la solicitud fue aceptada",
+]
+```
 
 ## Allure Reporting
 
@@ -142,10 +191,10 @@ poetry run python scripts/generate_report.py
 
 ### Debug Functions for Tests
 
-Import from `tests/conftest.py`:
+Import from `tests/specs/conftest.py`:
 
 ```python
-from tests.conftest import (
+from tests.specs.conftest import (
     allure_attach_screenshot,    # Attach PNG screenshot
     allure_attach_page_source,   # Attach XML page source
     allure_attach_debug_snapshot # Attach both screenshot + XML

@@ -307,6 +307,77 @@ class AIOrchestrator:
                     },
                 },
             },
+            # =========================================================================
+            # HERRAMIENTAS DE GESTIÓN MULTI-APP
+            # =========================================================================
+            {
+                "type": "function",
+                "function": {
+                    "name": "activate_app",
+                    "description": "Abre/activa una app instalada en el dispositivo. Trae la app al primer plano. Usa esto cuando necesites abrir una app o cambiar a otra app.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "app_package": {
+                                "type": "string",
+                                "description": "Package de la app Android (ej: 'com.example.myapp')",
+                            }
+                        },
+                        "required": ["app_package"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "terminate_app",
+                    "description": "Cierra completamente una app. La app deja de ejecutarse y libera recursos. Útil para limpiar estado.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "app_package": {
+                                "type": "string",
+                                "description": "Package de la app Android a cerrar",
+                            }
+                        },
+                        "required": ["app_package"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "switch_to_app",
+                    "description": "Cambia a otra app CERRANDO la app actual. Útil cuando no necesitas volver a la app anterior y quieres estado limpio.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "app_package": {
+                                "type": "string",
+                                "description": "Package de la app Android destino",
+                            }
+                        },
+                        "required": ["app_package"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "switch_to_app_keep_background",
+                    "description": "Cambia a otra app MANTENIENDO la actual en background. Ideal para flujos de ida y vuelta entre apps donde necesitas que mantengan su sesión/estado.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "app_package": {
+                                "type": "string",
+                                "description": "Package de la app Android destino",
+                            }
+                        },
+                        "required": ["app_package"],
+                    },
+                },
+            },
         ]
 
     def _call_openai(self, context: str, tools: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -339,6 +410,13 @@ Instrucciones:
 4. Usa las herramientas proporcionadas para interactuar con la app
 5. Si no encuentras un elemento, intenta hacer scroll
 6. Para validaciones, usa assert_screen_contains
+
+GESTIÓN MULTI-APP:
+Cuando necesites trabajar con múltiples apps (ej: flujo Customer ↔ Técnico):
+- activate_app(app_package): Abre/activa una app
+- switch_to_app_keep_background(app_package): Cambia a otra app manteniendo la actual en background (ideal para ida y vuelta)
+- switch_to_app(app_package): Cambia cerrando la app anterior (estado limpio)
+- terminate_app(app_package): Cierra completamente una app
 
 Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el paso actual."""
 
@@ -451,6 +529,13 @@ Instrucciones:
 4. Usa las herramientas proporcionadas para interactuar con la app
 5. Si no encuentras un elemento, intenta hacer scroll
 6. Para validaciones, usa assert_screen_contains
+
+GESTIÓN MULTI-APP:
+Cuando necesites trabajar con múltiples apps (ej: flujo Customer ↔ Técnico):
+- activate_app(app_package): Abre/activa una app
+- switch_to_app_keep_background(app_package): Cambia a otra app manteniendo la actual en background (ideal para ida y vuelta)
+- switch_to_app(app_package): Cambia cerrando la app anterior (estado limpio)
+- terminate_app(app_package): Cierra completamente una app
 
 Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el paso actual."""
 

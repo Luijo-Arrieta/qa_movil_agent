@@ -245,14 +245,15 @@ class AITestRunner:
                     logger.info(f"  ┌─ Loop agéntico iteración {loop_iteration} ─┐")
                     
                     # ══════════════════════════════════════════════════════════════
-                    # FASE 1: Obtener XML ACTUALIZADO del driver
+                    # FASE 1: Obtener XML ACTUALIZADO del driver (con espera de estabilidad)
                     # ══════════════════════════════════════════════════════════════
-                    logger.debug("  │ FASE 1: Obteniendo XML de la pantalla...")
+                    logger.debug("  │ FASE 1: Obteniendo XML de la pantalla (con espera de estabilidad)...")
                     phase1_start = time.time()
                     try:
-                        xml_source = self.agent_tools.get_screen_tree()
+                        # Usar get_screen_tree_stable para manejar pantallas de carga
+                        xml_source = self.agent_tools.get_screen_tree_stable()
                         phase1_time = int((time.time() - phase1_start) * 1000)
-                        logger.debug(f"  │ FASE 1: ✓ XML obtenido en {phase1_time}ms ({len(xml_source)} chars)")
+                        logger.debug(f"  │ FASE 1: ✓ XML estable obtenido en {phase1_time}ms ({len(xml_source)} chars)")
                     except Exception as e:
                         logger.error(f"  │ FASE 1 ERROR: No se pudo obtener XML: {e}")
                         logger.error(f"  │ Traceback:\n{traceback.format_exc()}")
@@ -345,9 +346,19 @@ class AITestRunner:
                         self.action_history.append(action_summary)
                         logger.debug(f"  │ Acción agregada al historial. Total: {len(self.action_history)}")
 
-                        # Esperar a que la UI se actualice
-                        logger.debug("  │ Esperando 1s para que la UI se actualice...")
-                        time.sleep(1)
+                        # ══════════════════════════════════════════════════════════════
+                        # FASE 5: Esperar a que la UI se estabilice (manejo de loading)
+                        # ══════════════════════════════════════════════════════════════
+                        logger.debug("  │ FASE 5: Esperando estabilidad de UI post-acción...")
+                        phase5_start = time.time()
+                        is_stable, wait_time, stability_reason = self.agent_tools.wait_for_ui_stable()
+                        phase5_time = int((time.time() - phase5_start) * 1000)
+                        
+                        if is_stable:
+                            logger.debug(f"  │ FASE 5: ✓ UI estable en {phase5_time}ms ({stability_reason})")
+                        else:
+                            logger.warning(f"  │ FASE 5: ⚠️ UI no estabilizó en {phase5_time}ms ({stability_reason})")
+                            # Continuamos de todos modos, el siguiente ciclo verificará el estado
 
                         logger.info(f"  └─ Fin loop iteración {loop_iteration} (continuando) ─┘")
                         # Continuar loop para obtener nuevo estado de UI
@@ -464,9 +475,44 @@ class AITestRunner:
                     logger.error(f"  ❌ Aserción falló: {message} ({elapsed_ms}ms)")
                     return False
 
+            # ═══════════════════════════════════════════════════════════════
+            # HERRAMIENTAS DE GESTIÓN MULTI-APP
+            # ═══════════════════════════════════════════════════════════════
+            elif tool_name == "activate_app":
+                app_package = tool_args.get("app_package")
+                if not app_package:
+                    logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
+                    return False
+                logger.debug(f"TEST_RUNNER: Llamando activate_app(app_package='{app_package}')")
+                result = self.agent_tools.activate_app(app_package)
+
+            elif tool_name == "terminate_app":
+                app_package = tool_args.get("app_package")
+                if not app_package:
+                    logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
+                    return False
+                logger.debug(f"TEST_RUNNER: Llamando terminate_app(app_package='{app_package}')")
+                result = self.agent_tools.terminate_app(app_package)
+
+            elif tool_name == "switch_to_app":
+                app_package = tool_args.get("app_package")
+                if not app_package:
+                    logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
+                    return False
+                logger.debug(f"TEST_RUNNER: Llamando switch_to_app(app_package='{app_package}')")
+                result = self.agent_tools.switch_to_app(app_package)
+
+            elif tool_name == "switch_to_app_keep_background":
+                app_package = tool_args.get("app_package")
+                if not app_package:
+                    logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
+                    return False
+                logger.debug(f"TEST_RUNNER: Llamando switch_to_app_keep_background(app_package='{app_package}')")
+                result = self.agent_tools.switch_to_app_keep_background(app_package)
+
             else:
                 logger.error(f"TEST_RUNNER ERROR: Herramienta desconocida: '{tool_name}'")
-                logger.error(f"TEST_RUNNER ERROR: Herramientas válidas: touch_element_by_id, fill_field_by_id, scroll, go_back, assert_screen_contains")
+                logger.error(f"TEST_RUNNER ERROR: Herramientas válidas: touch_element_by_id, fill_field_by_id, scroll, go_back, assert_screen_contains, activate_app, terminate_app, switch_to_app, switch_to_app_keep_background")
                 return False
 
             elapsed_ms = int((time.time() - start_time) * 1000)
