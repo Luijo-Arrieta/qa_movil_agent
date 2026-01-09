@@ -11,12 +11,49 @@ import xml.etree.ElementTree as ET
 import logging
 import traceback
 from typing import List, Dict, Optional, Any
+from typing_extensions import TypedDict
 import re
 
 from toon_format import encode as toon_encode
 
 # Configurar logging para este módulo
 logger = logging.getLogger(__name__)
+
+
+# TypedDict con claves que contienen guiones (usando sintaxis funcional)
+# Esto permite usar los mismos nombres que el XML de Appium
+UIElement = TypedDict(
+    "UIElement",
+    {
+        "resource-id": str,  # ID del recurso Android
+        "content-desc": str,  # Descripción de accesibilidad
+        "class": str,  # Clase del componente Android
+        "index": str,  # Índice del elemento en su padre
+        "xpath": str,  # XPath generado para localizar el elemento
+        "bounds": str,  # Coordenadas [x1,y1][x2,y2]
+        "clickable": str,  # "true" o "false"
+        "displayed": str,  # "true" o "false"
+        "enabled": str,  # "true" o "false"
+        "password": str,  # "true" o "false"
+        "scrollable": str,  # "true" o "false"
+        "text": str,  # Texto visible del elemento
+        "hint": str,  # Placeholder del input
+    },
+)
+"""
+UIElement - Representa un elemento de UI extraído del XML de Appium.
+
+Las propiedades están ordenadas por prioridad para construir selectores:
+1. resource-id (más estable y único)
+2. content-desc (accesibilidad)
+3. class (tipo de elemento)
+4. index (posición en padre)
+5. xpath (selector generado)
+6. bounds (coordenadas)
+7-11. Propiedades booleanas (clickable, displayed, enabled, password, scrollable)
+12. text (texto visible)
+13. hint (placeholder para inputs)
+"""
 
 
 class UIParser:
@@ -37,15 +74,33 @@ class UIParser:
             "filtered_out": 0,
         }
 
-    def parse_screen(self, xml_source: str) -> List[Dict[str, Any]]:
+    def parse_screen(self, xml_source: str) -> List[UIElement]:
         """
-        Parsea el XML y retorna lista de elementos interactuables en formato JSON.
+        Parsea el XML y retorna lista de elementos interactuables con propiedades reales.
+
+        Criterios de inclusión (focusable="true" es REQUERIDO):
+        - clickable="true" (con info útil: text, content-desc o resource-id)
+        - Clase contiene "EditText" (inputs) - siempre incluidos
+        - Clase contiene "ImageView" + clickable (botones de imagen) - siempre incluidos
 
         Args:
             xml_source: String con el XML completo de page_source
 
         Returns:
-            Lista de diccionarios con formato: [{"id": int, "role": str, "label": str, "checked": bool|None}]
+            Lista de diccionarios con propiedades del XML en este orden (prioridad para selectores):
+            - resource-id: ID del recurso Android
+            - content-desc: Descripción de accesibilidad
+            - class: Clase del componente Android
+            - index: Índice del elemento en su padre
+            - xpath: XPath generado para localizar el elemento
+            - bounds: Coordenadas del elemento [x1,y1][x2,y2]
+            - clickable: Si es clickeable ("true"/"false")
+            - displayed: Si está visible ("true"/"false")
+            - enabled: Si está habilitado ("true"/"false")
+            - password: Si es campo de contraseña ("true"/"false")
+            - scrollable: Si es scrolleable ("true"/"false")
+            - text: Texto visible del elemento
+            - hint: Placeholder del input (solo para EditText)
         """
         logger.debug("=" * 70)
         logger.debug("UIPARSER: Iniciando parseo de pantalla")
@@ -102,15 +157,16 @@ class UIParser:
         if elements:
             logger.debug("UIPARSER: Elementos encontrados:")
             for elem in elements:
-                logger.debug(f"  ID {elem['id']}: [{elem['role']}] '{elem['label']}' "
-                           f"{'(checked)' if elem.get('checked') else ''}")
+                # Mostrar identificador más relevante
+                identifier = elem.get('resource-id') or elem.get('content-desc') or elem.get('text') or 'sin-id'
+                logger.debug(f"  [{elem['class']}] '{identifier}' clickable={elem['clickable']}")
         else:
             logger.warning("UIPARSER WARNING: No se encontraron elementos interactuables en la pantalla")
         
         return elements
 
     def _traverse_tree(
-        self, element: ET.Element, parent_path: str, elements: List[Dict[str, Any]], parent_element: Optional[ET.Element] = None
+        self, element: ET.Element, parent_path: str, elements: List[UIElement], parent_element: Optional[ET.Element] = None
     ):
         """
         Recorre el árbol XML recursivamente y filtra elementos interactuables.
@@ -135,13 +191,14 @@ class UIParser:
         if self._is_interactable_element(element):
             self._parse_stats["interactable_found"] += 1
             # Extraer información y agregar a la lista
-            element_info = self._extract_element_info(element, self.current_id)
+            element_info = self._extract_element_info(element, current_path)
             if element_info:
                 elements.append(element_info)
-                # Guardar mapeo ID -> XPath
+                # Guardar mapeo index -> XPath para compatibilidad
                 self.element_map[self.current_id] = current_path
-                logger.debug(f"UIPARSER: ✓ Elemento ID {self.current_id} agregado: "
-                           f"[{element_info['role']}] '{element_info['label']}' -> XPath: {current_path}")
+                logger.debug(f"UIPARSER: ✓ Elemento agregado: "
+                           f"class={element_info['class']} content-desc='{element_info['content-desc']}' "
+                           f"resource-id='{element_info['resource-id']}' -> XPath: {current_path}")
                 self.current_id += 1
             else:
                 self._parse_stats["filtered_out"] += 1
@@ -162,10 +219,10 @@ class UIParser:
         Valida si un elemento debe incluirse en la lista de elementos interactuables.
 
         Reglas de inclusión:
-        - clickable="true"
-        - checkable="true"
-        - Clase contiene "EditText" o "Input"
-        - Tiene text o content-desc (excepto inputs que se incluyen siempre)
+        - focusable="true" es REQUERIDO para cualquier elemento
+        - clickable="true" (con info útil: text, content-desc o resource-id)
+        - Clase contiene "EditText" (inputs) - se incluyen siempre
+        - Clase contiene "ImageView" (botones de imagen) - se incluyen siempre
 
         Args:
             element: Elemento XML a validar
@@ -174,110 +231,85 @@ class UIParser:
             True si el elemento debe incluirse, False en caso contrario
         """
         # Obtener atributos relevantes
+        focusable = element.get("focusable", "false").lower() == "true"
         clickable = element.get("clickable", "false").lower() == "true"
-        checkable = element.get("checkable", "false").lower() == "true"
         class_name = element.get("class", "").lower()
         text = element.get("text", "").strip()
         content_desc = element.get("content-desc", "").strip()
         resource_id = element.get("resource-id", "").strip()
 
-        # Verificar si es un input (EditText, Input, etc.)
-        is_input = "edittext" in class_name or "input" in class_name
+        # focusable es REQUERIDO para cualquier elemento interactuable
+        if not focusable:
+            return False
 
-        # Si es input, siempre incluirlo
+        # Verificar tipos especiales que siempre se incluyen
+        is_input = "edittext" in class_name or "input" in class_name
+        is_image_button = "imageview" in class_name and clickable
+
+        # Inputs siempre se incluyen (aunque no tengan info útil)
         if is_input:
             return True
 
-        # Si es clickable o checkable, incluir
-        if clickable or checkable:
-            # Debe tener información útil (text, content-desc, o resource-id)
+        # ImageView clickables siempre se incluyen (botones de imagen como show/hide password)
+        if is_image_button:
+            return True
+
+        # Para otros elementos clickables, requieren info útil
+        if clickable:
             if text or content_desc or resource_id:
                 return True
 
         return False
 
     def _extract_element_info(
-        self, element: ET.Element, element_id: int
-    ) -> Optional[Dict[str, Any]]:
+        self, element: ET.Element, xpath: str
+    ) -> Optional[UIElement]:
         """
         Extrae información relevante del elemento para el JSON de salida.
 
+        Extrae propiedades reales del XML tal cual están, para que el agente
+        pueda construir selectores adecuados.
+
         Args:
             element: Elemento XML
-            element_id: ID asignado al elemento
+            xpath: XPath generado para este elemento
 
         Returns:
-            Diccionario con información del elemento o None si no tiene label útil
+            Diccionario con propiedades reales del elemento XML o None si no es válido
         """
-        # Obtener atributos
-        class_name = element.get("class", "").lower()
-        text = element.get("text", "").strip()
-        content_desc = element.get("content-desc", "").strip()
-        resource_id = element.get("resource-id", "").strip()
-        checked = element.get("checked", "").lower()
-        clickable = element.get("clickable", "false").lower() == "true"
-        checkable = element.get("checkable", "false").lower() == "true"
+        # Obtener atributos tal cual están en el XML
+        resource_id = element.get("resource-id", "")
+        content_desc = element.get("content-desc", "")
+        class_name = element.get("class", "")
+        index = element.get("index", "")
+        bounds = element.get("bounds", "")
+        clickable = element.get("clickable", "false")
+        displayed = element.get("displayed", "false")
+        enabled = element.get("enabled", "false")
+        password = element.get("password", "false")
+        scrollable = element.get("scrollable", "false")
+        text = element.get("text", "")
+        hint = element.get("hint", "")
 
-        # Determinar role
-        role = self._determine_role(class_name, clickable, checkable)
-
-        # Determinar si es input
-        is_input = "edittext" in class_name or "input" in class_name
-        
-        # Determinar label (prioridad lógica: resource-id > content-desc > text > hint)
-        # resource-id es el más estable y único, luego content-desc, luego text, y hint como último recurso
-        label = resource_id
-        if not label:
-            label = content_desc
-        if not label:
-            label = text
-        if not label:
-            # Último recurso: hint (puede ser volátil o no estar presente)
-            hint = element.get("hint", "").strip()
-            if hint:
-                label = hint
-
-        # Si es input, siempre incluir aunque no tenga label
-        if is_input and not label:
-            label = "Input field"  # Label por defecto para inputs sin texto
-
-        # Si no hay label y no es input, descartar
-        if not label and not is_input:
-            return None
-
-        # Determinar checked (solo para checkboxes)
-        checked_value = None
-        if checkable:
-            checked_value = checked == "true"
-
-        return {
-            "id": element_id,
-            "role": role,
-            "label": label,
-            "checked": checked_value,
-        }
-
-    def _determine_role(self, class_name: str, clickable: bool, checkable: bool) -> str:
-        """
-        Determina el role del elemento basado en sus atributos.
-
-        Args:
-            class_name: Nombre de la clase del elemento
-            clickable: Si el elemento es clickable
-            checkable: Si el elemento es checkable
-
-        Returns:
-            "button", "input", o "checkbox"
-        """
-        if "edittext" in class_name or "input" in class_name:
-            return "input"
-        elif checkable:
-            return "checkbox"
-        elif clickable:
-            return "button"
-        else:
-            # Fallback: si llegó aquí es porque pasó el filtro, asumir button
-            return "button"
+        # Retornar propiedades usando UIElement TypedDict
+        # La validación de inclusión ya se hizo en _is_interactable_element
+        return UIElement(
+            **{
+                "resource-id": resource_id,
+                "content-desc": content_desc,
+                "class": class_name,
+                "index": index,
+                "xpath": xpath,
+                "bounds": bounds,
+                "clickable": clickable,
+                "displayed": displayed,
+                "enabled": enabled,
+                "password": password,
+                "scrollable": scrollable,
+                "text": text,
+                "hint": hint,
+            }
+        )
 
     def _generate_xpath(self, element: ET.Element, parent_element: Optional[ET.Element] = None) -> str:
         """
@@ -452,28 +484,26 @@ class UIParser:
             "total_elements": len(self.element_map),
         }
 
-    def elements_to_toon(self, elements: List[Dict[str, Any]]) -> str:
+    def elements_to_toon(self, elements: List[UIElement]) -> str:
         """
         Convierte una lista de elementos UI a formato TOON.
-        
+
         TOON (Token-Oriented Object Notation) reduce el consumo de tokens
         en un 30-60% comparado con JSON, ideal para arrays uniformes de objetos.
-        
+
         Args:
             elements: Lista de elementos parseados por parse_screen()
-        
+
         Returns:
             String en formato TOON con los elementos
-        
+
         Example:
             JSON (más tokens):
-            [{"id": 0, "role": "button", "label": "Login", "checked": null},
-             {"id": 1, "role": "input", "label": "Email", "checked": null}]
-            
+            [{"resource-id": "btn_login", "content-desc": "Iniciar sesión", "class": "android.widget.Button", ..., "hint": ""}]
+
             TOON (menos tokens):
-            [2,]{id,role,label,checked}:
-              0,button,Login,null
-              1,input,Email,null
+            [1\t]{resource-id\tcontent-desc\tclass\tindex\txpath\tbounds\tclickable\tdisplayed\tenabled\tpassword\tscrollable\ttext\thint}:
+              btn_login\tIniciar sesión\tandroid.widget.Button\t0\t//...\t[0,0][100,50]\ttrue\ttrue\ttrue\tfalse\tfalse\tLogin\t
         """
         if not elements:
             logger.debug("UIPARSER: elements_to_toon() - Lista vacía, retornando string vacío")

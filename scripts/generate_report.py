@@ -20,6 +20,9 @@ def generate_report():
     """Genera el reporte HTML combinado de Allure."""
     from allure_combine import combine_allure
 
+    # Crear carpeta reports si no existe
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
     # Verificar que existan resultados
     if not ALLURE_RESULTS_DIR.exists():
         print(f"❌ No se encontró el directorio de resultados: {ALLURE_RESULTS_DIR}")
@@ -40,7 +43,8 @@ def generate_report():
     combine_allure(
         str(ALLURE_RESULTS_DIR),
         str(OUTPUT_FILE),
-        remove_temp_files=True
+        remove_temp_files=True,
+        auto_create_folders=True
     )
 
     print(f"✅ Reporte generado: {OUTPUT_FILE}")

@@ -17,9 +17,9 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 ```
 
 1. **Test Runner**: Orquesta el flujo completo y maneja reintentos
-2. **UIParser**: Parsea XML de Appium y genera representación JSON simplificada
-3. **AI Orchestrator**: Analiza la UI y decide qué acciones ejecutar
-4. **Agent Tools**: Ejecuta acciones de alto nivel en Appium
+2. **UIParser**: Parsea XML de Appium y extrae propiedades reales de Android para elementos interactuables
+3. **AI Orchestrator**: Analiza la UI y decide qué acciones ejecutar (usa formato TOON para eficiencia de tokens)
+4. **Agent Tools**: Ejecuta acciones de alto nivel en Appium usando XPath
 5. **Appium**: Controla el dispositivo Android
 
 ## 📋 Requisitos
@@ -29,6 +29,7 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 - Appium Server corriendo (puerto 4723 por defecto)
 - Dispositivo Android o emulador conectado
 - API Key de OpenAI o Anthropic
+- Allure CLI (opcional, para generar reportes HTML)
 
 ## 🚀 Instalación
 
@@ -354,18 +355,83 @@ poetry run pytest --timeout=300
 
 > **Nota:** En Windows con Poetry 2.0.0+, es más simple usar `poetry run` antes de cada comando en lugar de activar el entorno manualmente.
 
+## 📊 Reportes con Allure
+
+El proyecto usa Allure para generar reportes HTML interactivos con screenshots y logs detallados.
+
+### Instalar Allure CLI
+
+**Windows:**
+
+1. Descarga desde [GitHub Releases](https://github.com/allure-framework/allure2/releases)
+2. Busca `allure-X.X.X.zip` (ej: `allure-2.36.0.zip`)
+3. Descomprime en `C:\allure\`
+4. Agrega `C:\allure\allure-2.36.0\bin` al PATH de Windows
+
+**Linux/macOS (con Homebrew):**
+
+```bash
+brew install allure
+```
+
+**Linux (manual):**
+
+```bash
+cd ~
+wget https://github.com/allure-framework/allure2/releases/download/2.36.0/allure-2.36.0.tgz
+tar -zxvf allure-2.36.0.tgz
+echo 'export PATH=$PATH:~/allure-2.36.0/bin' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Verificar instalación
+
+```bash
+allure --version
+```
+
+### Generar reportes
+
+Después de ejecutar tests:
+
+```bash
+# Opción 1: Generar y abrir automáticamente
+allure serve reports/allure-results
+
+# Opción 2: Generar HTML estático
+allure generate reports/allure-results -o reports/allure-report --clean
+```
+
+El reporte incluye:
+
+- Screenshots automáticos en fallos
+- Page source XML adjunto
+- Logs detallados de cada paso
+- Tiempos de ejecución
+- Historial de tests
+
+---
+
 ## 📚 Componentes Principales
 
 ### UIParser (`src/ui_parser.py`)
 
-Parsea el XML de `page_source` y genera una lista JSON simplificada de elementos interactuables:
+Parsea el XML de `page_source` y extrae propiedades reales de Android para elementos interactuables:
 
 ```python
 from src.ui_parser import UIParser
 
 parser = UIParser()
 elements = parser.parse_screen(xml_source)
-# Retorna: [{"id": 1, "role": "button", "label": "Ingresar", ...}]
+# Retorna: [{"resource-id": "com.app:id/btn", "content-desc": "", "class": "android.widget.Button",
+#           "index": "0", "xpath": "//android.widget.Button[@index='0']", "bounds": "[0,100][720,200]",
+#           "clickable": "true", "displayed": "true", "enabled": "true", "password": "false",
+#           "scrollable": "false", "text": "Ingresar", "hint": ""}]
+
+# Criterios de inclusión (focusable="true" es REQUERIDO):
+# - clickable="true" con información útil (text, content-desc, o resource-id)
+# - Elementos EditText (inputs) - siempre incluidos
+# - ImageView + clickable (botones de imagen) - siempre incluidos
 ```
 
 ### Agent Tools (`src/agent_tools.py`)
@@ -376,8 +442,11 @@ Herramientas de alto nivel para interactuar con Appium:
 from src.agent_tools import AppiumSkills
 
 skills = AppiumSkills(driver, ui_parser)
-skills.touch_element_by_id(1)  # Clic por ID
-skills.fill_field_by_id(2, "texto")  # Escribir por ID
+skills.touch_element_by_xpath(xpath)  # Clic por XPath
+skills.fill_field_by_xpath(xpath, "texto")  # Escribir por XPath
+skills.scroll("down")  # Scroll
+skills.go_back()  # Botón atrás
+skills.assert_screen_contains("Bienvenido")  # Verificar texto
 ```
 
 ### AI Orchestrator (`src/ai_orchestrator.py`)

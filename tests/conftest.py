@@ -23,6 +23,10 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
+# Silenciar loggers ruidosos que imprimen datos base64 de screenshots
+logging.getLogger("selenium.webdriver.remote.remote_connection").setLevel(logging.WARNING)
+logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+
 
 def pytest_configure(config):
     """Registrar markers personalizados."""

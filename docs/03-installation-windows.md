@@ -287,6 +287,53 @@ appium driver list --installed
 
 ---
 
+## Paso 6.5: Instalar Allure CLI (para reportes)
+
+Allure CLI se usa para generar reportes HTML interactivos de los tests.
+
+### Instalar Allure CLI
+
+1. Descarga Allure desde [GitHub Releases](https://github.com/allure-framework/allure2/releases)
+2. Busca el archivo `allure-X.X.X.zip` (última versión, ej: `allure-2.36.0.zip`)
+3. Descarga y descomprime en `C:\allure\`
+   - Deberías tener: `C:\allure\allure-2.36.0\bin\allure.bat`
+
+### Agregar Allure al PATH
+
+1. Presiona `Windows + R`, escribe `sysdm.cpl` y presiona Enter
+2. Ve a **"Opciones avanzadas"** > **"Variables de entorno..."**
+3. Edita la variable **"Path"** (en Variables de usuario)
+4. Haz clic en **"Nuevo"** y agrega:
+   ```
+   C:\allure\allure-2.36.0\bin
+   ```
+5. Haz clic en **"Aceptar"** en todas las ventanas
+
+### Verificar instalación
+
+Cierra todas las terminales y abre una nueva:
+
+```bash
+allure --version
+```
+
+**Resultado esperado:**
+```
+2.36.0
+```
+
+### Uso de Allure (después de ejecutar tests)
+
+```bash
+# Generar y abrir reporte automáticamente
+allure serve reports/allure-results
+
+# O generar HTML estático
+allure generate reports/allure-results -o reports/allure-report --clean
+```
+
+---
+
 ## Paso 7: Clonar e Instalar el Proyecto
 
 ### Clonar el repositorio
