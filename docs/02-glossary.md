@@ -241,21 +241,43 @@ assert len(lista) > 0           # Verifica que la lista no esté vacía
 
 ### UIParser
 
-**¿Qué es?** El componente que convierte el XML complicado de Android en un JSON simple que la IA puede entender.
+**¿Qué es?** El componente que extrae las propiedades reales de los elementos Android del XML y las entrega a la IA en formato TOON (token-eficiente).
 
-**Analogía:** Es como un resumen ejecutivo. Toma un documento de 100 páginas (XML) y lo convierte en una lista de puntos clave (JSON).
+**Analogía:** Es como un inspector que revisa una casa y anota las características exactas de cada elemento (marca, modelo, ubicación, estado) en una planilla estructurada.
 
 **Entrada (XML complejo):**
 ```xml
 <android.widget.LinearLayout class="..." bounds="[0,0][1080,2400]">
-  <android.widget.EditText hint="Usuario" resource-id="com.app:id/username" />
+  <android.widget.EditText
+    hint="Usuario"
+    resource-id="com.app:id/username"
+    class="android.widget.EditText"
+    focusable="true"
+    clickable="true"
+  />
 </android.widget.LinearLayout>
 ```
 
-**Salida (JSON simple):**
-```json
-[{"id": 0, "role": "input", "label": "com.app:id/username"}]
+**Salida (propiedades reales en formato TOON):**
+```toon
+[1]{resource-id content-desc class index xpath bounds clickable displayed enabled password scrollable text hint}:
+  com.app:id/username "" android.widget.EditText "0" //android.widget.EditText[@resource-id="com.app:id/username"] "[100,300][980,400]" "true" "true" "true" "false" "false" "" "Usuario"
 ```
+
+**Propiedades extraídas (en orden):**
+1. resource-id - Identificador único del elemento
+2. content-desc - Descripción de accesibilidad
+3. class - Clase Android del elemento
+4. index - Posición en el elemento padre
+5. xpath - Selector XPath generado
+6. bounds - Coordenadas [x1,y1][x2,y2]
+7. clickable - "true" o "false"
+8. displayed - "true" o "false"
+9. enabled - "true" o "false"
+10. password - "true" o "false"
+11. scrollable - "true" o "false"
+12. text - Texto visible
+13. hint - Placeholder (solo en inputs)
 
 ---
 
@@ -266,11 +288,15 @@ assert len(lista) > 0           # Verifica que la lista no esté vacía
 **Analogía:** Son las "manos" del robot. La IA (cerebro) decide qué hacer, y los Agent Tools lo ejecutan.
 
 **Acciones disponibles:**
-- `touch_element_by_id(id)` - Tocar un elemento
-- `fill_field_by_id(id, texto)` - Escribir texto en un campo
+
+- `touch_element_by_xpath(xpath)` - Tocar un elemento usando su XPath
+- `fill_field_by_xpath(xpath, texto)` - Escribir texto en un campo
 - `scroll(direccion)` - Hacer scroll arriba/abajo
 - `go_back()` - Presionar botón atrás
 - `assert_screen_contains(texto)` - Verificar que hay cierto texto
+- `activate_app(package)` - Abrir/traer al frente una app
+- `terminate_app(package)` - Cerrar completamente una app
+- `switch_to_app(package)` - Cambiar a otra app (cierra la actual)
 
 ---
 

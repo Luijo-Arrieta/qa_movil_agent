@@ -135,8 +135,10 @@ class TestLogin:
 
         # Mostrar qué elementos encontró (útil para debug)
         print(f"\n📱 Elementos encontrados: {len(elementos)}")
-        for elem in elementos:
-            print(f"   ID {elem['id']}: {elem['role']} - {elem['label']}")
+        for elem in elementos[:5]:  # Mostrar solo los primeros 5
+            print(f"   resource-id: {elem['resource-id']}")
+            print(f"   class: {elem['class']}")
+            print(f"   text: {elem['text']}")
 ```
 
 **¿Qué hace este código?**
@@ -165,19 +167,21 @@ class TestLogin:
 
         # Mostrar qué elementos encontró
         print(f"\n📱 Elementos encontrados: {len(elementos)}")
-        for elem in elementos:
-            print(f"   ID {elem['id']}: {elem['role']} - {elem['label']}")
+        for elem in elementos[:5]:
+            print(f"   resource-id: {elem['resource-id']}")
+            print(f"   class: {elem['class']}")
+            print(f"   text: {elem['text']}")
 
         # VERIFICACIONES
         # 1. Debe haber al menos un elemento
         assert len(elementos) > 0, "La pantalla no tiene elementos interactuables"
 
         # 2. Debe haber campos de entrada (para usuario y contraseña)
-        inputs = [e for e in elementos if e['role'] == 'input']
+        inputs = [e for e in elementos if 'edittext' in e['class'].lower()]
         assert len(inputs) >= 2, f"Se esperaban al menos 2 inputs, encontrados: {len(inputs)}"
 
         # 3. Debe haber un botón (para hacer login)
-        botones = [e for e in elementos if e['role'] == 'button']
+        botones = [e for e in elementos if 'button' in e['class'].lower()]
         assert len(botones) >= 1, f"Se esperaba al menos 1 botón, encontrados: {len(botones)}"
 ```
 
@@ -203,11 +207,15 @@ poetry run pytest tests/test_login.py -v
 tests/specs/spec_login.py::TestLogin::test_pantalla_login_carga_correctamente PASSED
 
 📱 Elementos encontrados: 5
-   ID 0: input - com.app:id/email
-   ID 1: input - com.app:id/password
-   ID 2: button - com.app:id/login_button
-   ID 3: button - com.app:id/forgot_password
-   ID 4: button - com.app:id/register
+   resource-id: com.app:id/email
+   class: android.widget.EditText
+   text:
+   resource-id: com.app:id/password
+   class: android.widget.EditText
+   text:
+   resource-id: com.app:id/login_button
+   class: android.widget.Button
+   text: Ingresar
 ```
 
 ---
@@ -233,10 +241,10 @@ Ahora que tienes el primer test funcionando, agreguemos más:
         elementos = parser.parse_screen(driver.page_source)
 
         # Encontrar campos de input
-        inputs = [e for e in elementos if e['role'] == 'input']
+        inputs = [e for e in elementos if 'edittext' in e['class'].lower()]
 
         # Obtener XPath del primer input (usuario)
-        xpath_usuario = parser.get_element_by_id(inputs[0]['id'])
+        xpath_usuario = inputs[0]['xpath']
         campo_usuario = driver.find_element("xpath", xpath_usuario)
 
         # Escribir en el campo
@@ -265,19 +273,21 @@ Ahora que tienes el primer test funcionando, agreguemos más:
         elementos = parser.parse_screen(driver.page_source)
 
         # Encontrar botón de login
-        botones = [e for e in elementos if e['role'] == 'button']
+        botones = [e for e in elementos if 'button' in e['class'].lower()]
         boton_login = None
 
         for boton in botones:
-            # Buscar por label que contenga "login", "ingresar", etc.
-            if any(palabra in boton['label'].lower() for palabra in ['login', 'ingresar', 'entrar', 'sign']):
+            # Buscar por text o resource-id que contenga "login", "ingresar", etc.
+            texto_boton = boton['text'].lower()
+            id_boton = boton['resource-id'].lower()
+            if any(palabra in texto_boton or palabra in id_boton for palabra in ['login', 'ingresar', 'entrar', 'sign']):
                 boton_login = boton
                 break
 
         assert boton_login is not None, "No se encontró el botón de login"
 
         # Obtener XPath y hacer clic
-        xpath_boton = parser.get_element_by_id(boton_login['id'])
+        xpath_boton = boton_login['xpath']
         elemento_boton = driver.find_element("xpath", xpath_boton)
 
         allure_attach_screenshot(driver, "01_antes_del_clic")
@@ -428,16 +438,18 @@ class TestLogin:
 
         # Mostrar qué elementos encontró
         print(f"\n📱 Elementos encontrados: {len(elementos)}")
-        for elem in elementos:
-            print(f"   ID {elem['id']}: {elem['role']} - {elem['label']}")
+        for elem in elementos[:5]:
+            print(f"   resource-id: {elem['resource-id']}")
+            print(f"   class: {elem['class']}")
+            print(f"   text: {elem['text']}")
 
         # Verificaciones
         assert len(elementos) > 0, "La pantalla no tiene elementos interactuables"
 
-        inputs = [e for e in elementos if e['role'] == 'input']
+        inputs = [e for e in elementos if 'edittext' in e['class'].lower()]
         assert len(inputs) >= 1, f"Se esperaba al menos 1 input, encontrados: {len(inputs)}"
 
-        botones = [e for e in elementos if e['role'] == 'button']
+        botones = [e for e in elementos if 'button' in e['class'].lower()]
         assert len(botones) >= 1, f"Se esperaba al menos 1 botón, encontrados: {len(botones)}"
 
     @pytest.mark.integration
@@ -453,13 +465,12 @@ class TestLogin:
         # Verificar que hay elementos
         assert len(elementos) > 0, "No hay elementos en la pantalla"
 
-        # Verificar que cada elemento tiene los campos requeridos
+        # Verificar que cada elemento tiene las propiedades requeridas
+        required_fields = ['resource-id', 'class', 'xpath', 'clickable', 'text']
         for elem in elementos:
-            assert 'id' in elem, "Elemento sin ID"
-            assert 'role' in elem, "Elemento sin role"
-            assert 'label' in elem, "Elemento sin label"
-            assert elem['role'] in ['button', 'input', 'checkbox'], \
-                f"Role desconocido: {elem['role']}"
+            for field in required_fields:
+                assert field in elem, f"Elemento sin {field}"
+            assert elem['class'] != "", "Elemento sin class válido"
 
     @pytest.mark.integration
     @pytest.mark.slow
@@ -476,8 +487,10 @@ class TestLogin:
         elementos = parser.parse_screen(driver.page_source)
 
         print(f"\n📱 Elementos en pantalla de login:")
-        for elem in elementos:
-            print(f"   [{elem['id']}] {elem['role']}: {elem['label']}")
+        for elem in elementos[:5]:
+            print(f"   resource-id: {elem['resource-id']}")
+            print(f"   class: {elem['class']}")
+            print(f"   text: {elem['text']}")
 
         # Paso 3: Verificar estructura
         assert len(elementos) > 0, "Pantalla vacía"

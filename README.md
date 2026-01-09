@@ -29,6 +29,7 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 - Appium Server corriendo (puerto 4723 por defecto)
 - Dispositivo Android o emulador conectado
 - API Key de OpenAI o Anthropic
+- Allure CLI (opcional, para generar reportes HTML)
 
 ## 🚀 Instalación
 
@@ -353,6 +354,63 @@ poetry run pytest --timeout=300
 | Ideal para | CI/CD, desarrollo | Validación E2E |
 
 > **Nota:** En Windows con Poetry 2.0.0+, es más simple usar `poetry run` antes de cada comando en lugar de activar el entorno manualmente.
+
+## 📊 Reportes con Allure
+
+El proyecto usa Allure para generar reportes HTML interactivos con screenshots y logs detallados.
+
+### Instalar Allure CLI
+
+**Windows:**
+
+1. Descarga desde [GitHub Releases](https://github.com/allure-framework/allure2/releases)
+2. Busca `allure-X.X.X.zip` (ej: `allure-2.36.0.zip`)
+3. Descomprime en `C:\allure\`
+4. Agrega `C:\allure\allure-2.36.0\bin` al PATH de Windows
+
+**Linux/macOS (con Homebrew):**
+
+```bash
+brew install allure
+```
+
+**Linux (manual):**
+
+```bash
+cd ~
+wget https://github.com/allure-framework/allure2/releases/download/2.36.0/allure-2.36.0.tgz
+tar -zxvf allure-2.36.0.tgz
+echo 'export PATH=$PATH:~/allure-2.36.0/bin' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Verificar instalación
+
+```bash
+allure --version
+```
+
+### Generar reportes
+
+Después de ejecutar tests:
+
+```bash
+# Opción 1: Generar y abrir automáticamente
+allure serve reports/allure-results
+
+# Opción 2: Generar HTML estático
+allure generate reports/allure-results -o reports/allure-report --clean
+```
+
+El reporte incluye:
+
+- Screenshots automáticos en fallos
+- Page source XML adjunto
+- Logs detallados de cada paso
+- Tiempos de ejecución
+- Historial de tests
+
+---
 
 ## 📚 Componentes Principales
 
