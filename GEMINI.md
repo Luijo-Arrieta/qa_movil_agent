@@ -34,8 +34,45 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 - `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs.
 - `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert)
 - `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic) with function calling. Uses TOON format for token efficiency.
-- `src/test_runner.py` - Orchestrates test execution with retry system (max 3 attempts per step)
+- `src/test_runner.py` - Orchestrates test execution with intelligent retry system (max 3 attempts per step)
 - `src/config.py` - Environment configuration. Loads `.env` then `.env.local` (override)
+
+## Error Handling and Retry System
+
+The test runner implements an intelligent error handling system that distinguishes between recoverable and non-recoverable errors.
+
+### Recoverable Errors (Will Retry)
+
+These errors are temporary and may resolve on retry:
+- `TimeoutException` - Temporary timeouts
+- `NoSuchElementException` - Element not found (may appear later)
+- `ElementNotInteractableException` - Element not interactable (state may change)
+- `StaleElementReferenceException` - Stale element reference (can be resolved)
+- `WebDriverException` - Some temporary driver errors (except session errors)
+
+**Behavior:** The system will retry up to `max_retries` (default: 3) times with a 2-second delay between attempts.
+
+### Non-Recoverable Errors (Fail Immediately)
+
+These errors indicate programming/configuration issues and won't be fixed by retrying:
+- `ValueError` - Invalid data or structure
+- `KeyError` - Missing dictionary key
+- `TypeError` - Incorrect types
+- `AttributeError` - Missing attribute
+- `SyntaxError` - Syntax errors
+- `NameError` - Undefined name
+- `ImportError` - Import errors
+- `WebDriverException` with session errors (e.g., "session not created", "invalid session id")
+
+**Behavior:** The test fails immediately without retries, providing clear error messages indicating the issue needs to be fixed in code/configuration.
+
+### Implementation
+
+The `_is_recoverable_error()` function in `src/test_runner.py` classifies errors automatically. When a non-recoverable error occurs, the test runner:
+1. Logs the error with full traceback
+2. Indicates it's a non-recoverable error
+3. Fails immediately without wasting time on retries
+4. Provides guidance to check configuration, data structure, or code
 
 ## Commands
 
@@ -117,25 +154,28 @@ adb devices
 
 ## UIParser Output Format
 
-### JSON Format (internal)
-Elements returned by UIParser contain real Android XML properties in this order:
+### Internal Structure (JSON)
+UIParser returns elements with a consistent structure using `{id, attrs}`:
+
 ```json
 {
-  "resource-id": "com.example:id/button",
-  "content-desc": "Submit button",
-  "class": "android.widget.Button",
-  "index": "0",
-  "xpath": "//android.widget.Button[@index='0']",
-  "bounds": "[0,100][720,200]",
-  "clickable": "true",
-  "displayed": "true",
-  "enabled": "true",
-  "password": "false",
-  "scrollable": "false",
-  "text": "Submit",
-  "hint": ""
+  "id": 0,
+  "attrs": [
+    {"name": "content-desc", "value": "Submit button"},
+    {"name": "class", "value": "android.widget.Button"},
+    {"name": "xpath", "value": "//android.widget.Button[@content-desc=\"Submit button\"]"},
+    {"name": "bounds", "value": "[0,100][720,200]"},
+    {"name": "clickable", "value": "true"},
+    {"name": "enabled", "value": "true"},
+    {"name": "displayed", "value": "true"}
+  ]
 }
 ```
+
+**Why this structure?**
+- `attrs` is always a list of `{name, value}` objects (consistent schema)
+- Only non-empty attributes are included (except booleans)
+- Easy to extend without breaking structure
 
 **Inclusion Criteria (focusable="true" is REQUIRED):**
 - `clickable="true"` with useful info (text, content-desc, or resource-id)
@@ -143,14 +183,19 @@ Elements returned by UIParser contain real Android XML properties in this order:
 - `ImageView` + clickable (image buttons) - always included
 
 ### TOON Format (for LLMs)
-For communication with LLMs, UIParser can output in **TOON (Token-Oriented Object Notation)** format, which reduces token consumption by 30-60% compared to JSON.
+For communication with LLMs, elements are flattened and converted to **TOON (Token-Oriented Object Notation)** format, reducing token consumption by 30-60%.
 
 ```toon
-[3	]{resource-id	content-desc	class	index	xpath	bounds	clickable	displayed	enabled	password	scrollable	text	hint}:
-  com.example:id/login		android.widget.Button	0	//android.widget.Button[@index='0']	[0,100][720,200]	true	true	true	false	false	Login
-  com.example:id/email		android.widget.EditText	1	//android.widget.EditText[@index='1']	[0,200][720,300]	true	true	true	false	false		Enter email
-  com.example:id/password		android.widget.EditText	2	//android.widget.EditText[@index='2']	[0,300][720,400]	true	true	true	true	false		Enter password
+[3]{id	content-desc	class	xpath	clickable	enabled}:
+  0	Login	android.widget.Button	//android.widget.Button[@content-desc="Login"]	true	true
+  1		android.widget.EditText	//android.widget.EditText[1]	true	true
+  2		android.widget.EditText	//android.widget.EditText[2]	true	true
 ```
+
+**Data Flow:**
+1. UIParser generates `{id, attrs: [{name, value}]}` internally
+2. AI Orchestrator flattens to `{id, content-desc, class, ...}` for TOON
+3. LLM receives TOON format with attributes as columns
 
 **Why TOON?**
 - Uses tabular format with headers, reducing repetition
@@ -158,17 +203,13 @@ For communication with LLMs, UIParser can output in **TOON (Token-Oriented Objec
 - Maintains full data fidelity (lossless)
 - See: https://github.com/toon-format/toon
 
-**Methods:**
-- `parser.elements_to_toon(elements)` - Convert element list to TOON
-- `parser.parse_screen_to_toon(xml)` - Parse XML directly to TOON
-
 ## AI Tools Available
 
 The LLM can use these tools via function calling:
 
 ### UI Interaction Tools
-- `touch_element_by_xpath(xpath)` - Click element
-- `fill_field_by_xpath(xpath, value)` - Type text in input
+- `touch_element_by_id(element_id)` - Click element by ID
+- `fill_field_by_id(element_id, value)` - Type text in input by ID
 - `scroll(direction)` - Scroll up/down
 - `go_back()` - Press back button
 - `assert_screen_contains(text)` - Verify text presence

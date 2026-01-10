@@ -12,20 +12,30 @@ import pytest
 
 from src.ui_parser import UIParser
 
-
 logger = logging.getLogger(__name__)
+
+
+def get_attr_value(element, attr_name, default=""):
+    """Helper para obtener valor de un atributo de un UIElement."""
+    for attr in element.get("attrs", []):
+        if attr.get("name") == attr_name:
+            return attr.get("value", default)
+    return default
 
 
 class TestUIParser:
     """Tests para la clase UIParser."""
 
     def test_parse_screen_with_clickable_button(self):
-        """Test: Parsear XML con un botón clickable."""
+        """Test: Parsear XML con un botón clickable y focusable."""
         xml = """
         <hierarchy>
             <android.widget.Button
                 text="Ingresar"
                 clickable="true"
+                focusable="true"
+                enabled="true"
+                displayed="true"
                 class="android.widget.Button"
                 resource-id="com.example:id/login_button"/>
         </hierarchy>
@@ -35,17 +45,26 @@ class TestUIParser:
 
         assert len(elements) == 1
         assert elements[0]["id"] == 0
-        assert elements[0]["role"] == "button"
-        # resource-id tiene prioridad sobre text (más estable y único)
-        assert elements[0]["label"] == "com.example:id/login_button"
-        assert elements[0]["checked"] is None
+        
+        # Verificar estructura de attrs
+        assert "attrs" in elements[0]
+        assert isinstance(elements[0]["attrs"], list)
+        
+        # Verificar atributos específicos
+        assert get_attr_value(elements[0], "resource-id") == "com.example:id/login_button"
+        assert get_attr_value(elements[0], "text") == "Ingresar"
+        assert get_attr_value(elements[0], "class") == "android.widget.Button"
+        assert get_attr_value(elements[0], "clickable") == "true"
 
     def test_parse_screen_with_input_field(self):
-        """Test: Parsear XML con un campo de entrada."""
+        """Test: Parsear XML con un campo de entrada (EditText siempre se incluye si es focusable)."""
         xml = """
         <hierarchy>
             <android.widget.EditText
                 hint="Usuario"
+                focusable="true"
+                enabled="true"
+                displayed="true"
                 class="android.widget.EditText"
                 resource-id="com.example:id/username_input"/>
         </hierarchy>
@@ -55,10 +74,11 @@ class TestUIParser:
 
         assert len(elements) == 1
         assert elements[0]["id"] == 0
-        assert elements[0]["role"] == "input"
-        # resource-id tiene prioridad sobre hint (más estable y confiable)
-        assert elements[0]["label"] == "com.example:id/username_input"
-        assert elements[0]["checked"] is None
+        
+        # Verificar atributos
+        assert get_attr_value(elements[0], "resource-id") == "com.example:id/username_input"
+        assert get_attr_value(elements[0], "hint") == "Usuario"
+        assert get_attr_value(elements[0], "class") == "android.widget.EditText"
     
     def test_parse_screen_with_input_field_hint_only(self):
         """Test: Parsear XML con un campo de entrada que solo tiene hint (sin resource-id)."""
@@ -66,6 +86,9 @@ class TestUIParser:
         <hierarchy>
             <android.widget.EditText
                 hint="Usuario"
+                focusable="true"
+                enabled="true"
+                displayed="true"
                 class="android.widget.EditText"/>
         </hierarchy>
         """
@@ -74,66 +97,27 @@ class TestUIParser:
 
         assert len(elements) == 1
         assert elements[0]["id"] == 0
-        assert elements[0]["role"] == "input"
-        # Si no hay resource-id, usa hint
-        assert elements[0]["label"] == "Usuario"
-        assert elements[0]["checked"] is None
+        
+        # Sin resource-id, solo debe tener hint
+        assert get_attr_value(elements[0], "resource-id") == ""
+        assert get_attr_value(elements[0], "hint") == "Usuario"
 
-    def test_parse_screen_with_checkbox(self):
-        """Test: Parsear XML con un checkbox."""
-        xml = """
-        <hierarchy>
-            <android.widget.CheckBox
-                text="Recordar sesión"
-                checkable="true"
-                checked="false"
-                class="android.widget.CheckBox"/>
-        </hierarchy>
-        """
-        parser = UIParser()
-        elements = parser.parse_screen(xml)
-
-        assert len(elements) == 1
-        assert elements[0]["id"] == 0
-        assert elements[0]["role"] == "checkbox"
-        # Sin resource-id ni content-desc, usa text
-        assert elements[0]["label"] == "Recordar sesión"
-        assert elements[0]["checked"] is False
-    
-    def test_parse_screen_with_checkbox_resource_id(self):
-        """Test: Parsear XML con un checkbox que tiene resource-id."""
-        xml = """
-        <hierarchy>
-            <android.widget.CheckBox
-                text="Recordar sesión"
-                checkable="true"
-                checked="false"
-                resource-id="com.example:id/remember_checkbox"
-                class="android.widget.CheckBox"/>
-        </hierarchy>
-        """
-        parser = UIParser()
-        elements = parser.parse_screen(xml)
-
-        assert len(elements) == 1
-        assert elements[0]["id"] == 0
-        assert elements[0]["role"] == "checkbox"
-        # resource-id tiene prioridad sobre text
-        assert elements[0]["label"] == "com.example:id/remember_checkbox"
-        assert elements[0]["checked"] is False
-
-    def test_filter_non_interactable_elements(self):
-        """Test: Filtrar elementos no interactuables."""
+    def test_filter_non_focusable_elements(self):
+        """Test: Filtrar elementos no focusables."""
         xml = """
         <hierarchy>
             <android.widget.LinearLayout
                 class="android.widget.LinearLayout">
                 <android.widget.TextView
                     text="Título"
-                    class="android.widget.TextView"/>
+                    class="android.widget.TextView"
+                    focusable="false"/>
                 <android.widget.Button
                     text="Botón"
                     clickable="true"
+                    focusable="true"
+                    enabled="true"
+                    displayed="true"
                     class="android.widget.Button"/>
             </android.widget.LinearLayout>
         </hierarchy>
@@ -141,11 +125,10 @@ class TestUIParser:
         parser = UIParser()
         elements = parser.parse_screen(xml)
 
-        # Solo el botón debe estar en la lista (no el layout ni el TextView)
+        # Solo el botón debe estar en la lista (focusable=true)
         assert len(elements) == 1
-        assert elements[0]["role"] == "button"
-        # Sin resource-id ni content-desc, usa text
-        assert elements[0]["label"] == "Botón"
+        assert get_attr_value(elements[0], "class") == "android.widget.Button"
+        assert get_attr_value(elements[0], "text") == "Botón"
 
     def test_get_element_by_id(self):
         """Test: Recuperar XPath por ID."""
@@ -154,6 +137,8 @@ class TestUIParser:
             <android.widget.Button
                 text="Ingresar"
                 clickable="true"
+                focusable="true"
+                enabled="true"
                 resource-id="com.example:id/login_button"/>
         </hierarchy>
         """
@@ -171,13 +156,19 @@ class TestUIParser:
         <hierarchy>
             <android.widget.EditText
                 hint="Usuario"
+                focusable="true"
+                enabled="true"
                 class="android.widget.EditText"/>
             <android.widget.EditText
                 hint="Contraseña"
+                focusable="true"
+                enabled="true"
                 class="android.widget.EditText"/>
             <android.widget.Button
                 text="Ingresar"
                 clickable="true"
+                focusable="true"
+                enabled="true"
                 class="android.widget.Button"/>
         </hierarchy>
         """
@@ -188,9 +179,11 @@ class TestUIParser:
         assert elements[0]["id"] == 0
         assert elements[1]["id"] == 1
         assert elements[2]["id"] == 2
-        assert elements[0]["role"] == "input"
-        assert elements[1]["role"] == "input"
-        assert elements[2]["role"] == "button"
+        
+        # Verificar clases
+        assert "EditText" in get_attr_value(elements[0], "class")
+        assert "EditText" in get_attr_value(elements[1], "class")
+        assert "Button" in get_attr_value(elements[2], "class")
 
     def test_empty_screen(self):
         """Test: Pantalla vacía sin elementos interactuables."""
@@ -211,141 +204,226 @@ class TestUIParser:
         with pytest.raises(ValueError):
             parser.parse_screen("<invalid>xml")
 
-
-class TestUIParserTOON:
-    """Tests para la funcionalidad TOON del UIParser."""
-
-    def test_elements_to_toon_basic(self):
-        """Test: Convertir lista de elementos básica a formato TOON."""
-        elements = [
-            {"id": 0, "role": "button", "label": "Login", "checked": None},
-            {"id": 1, "role": "input", "label": "Email", "checked": None},
-        ]
-        
+    def test_element_structure_has_id_and_attrs(self):
+        """Test: Cada elemento debe tener 'id' y 'attrs'."""
+        xml = """
+        <hierarchy>
+            <android.widget.Button
+                text="Click me"
+                content-desc="Test button"
+                clickable="true"
+                focusable="true"
+                enabled="true"
+                displayed="true"
+                class="android.widget.Button"
+                resource-id="com.example:id/test_btn"
+                bounds="[0,0][100,50]"/>
+        </hierarchy>
+        """
         parser = UIParser()
-        toon_output = parser.elements_to_toon(elements)
-        
-        # Verificar que se generó output TOON
-        assert toon_output is not None
-        assert len(toon_output) > 0
-        
-        # TOON debe contener el número de elementos en el header
-        assert "[2" in toon_output, "TOON debe indicar la cantidad de elementos"
-        
-        # TOON debe contener los campos del header
-        assert "id" in toon_output
-        assert "role" in toon_output
-        assert "label" in toon_output
-        assert "checked" in toon_output
-        
-        # TOON debe contener los valores
-        assert "Login" in toon_output
-        assert "Email" in toon_output
-        assert "button" in toon_output
-        assert "input" in toon_output
-        
-        logger.info(f"TOON output:\n{toon_output}")
+        elements = parser.parse_screen(xml)
 
-    def test_elements_to_toon_empty_list(self):
-        """Test: Lista vacía debe retornar string vacío."""
+        assert len(elements) == 1
+        element = elements[0]
+        
+        # Verificar estructura básica
+        assert "id" in element
+        assert "attrs" in element
+        assert isinstance(element["id"], int)
+        assert isinstance(element["attrs"], list)
+        
+        # Verificar estructura de cada attr
+        for attr in element["attrs"]:
+            assert "name" in attr
+            assert "value" in attr
+            assert isinstance(attr["name"], str)
+            assert isinstance(attr["value"], str)
+
+    def test_attrs_only_include_non_empty_values(self):
+        """Test: Solo se incluyen atributos con valor no vacío (excepto booleanos)."""
+        xml = """
+        <hierarchy>
+            <android.widget.Button
+                text=""
+                content-desc="Accessible button"
+                clickable="true"
+                focusable="true"
+                enabled="true"
+                displayed="true"
+                class="android.widget.Button"
+                resource-id=""
+                bounds="[0,0][100,50]"/>
+        </hierarchy>
+        """
         parser = UIParser()
-        toon_output = parser.elements_to_toon([])
-        
-        assert toon_output == ""
+        elements = parser.parse_screen(xml)
 
-    def test_elements_to_toon_with_checkbox(self):
-        """Test: Convertir elementos con checkbox a TOON."""
-        elements = [
-            {"id": 0, "role": "checkbox", "label": "Remember me", "checked": True},
-            {"id": 1, "role": "checkbox", "label": "Accept terms", "checked": False},
-        ]
+        assert len(elements) == 1
+        element = elements[0]
         
+        # resource-id y text están vacíos, no deben aparecer
+        attr_names = [attr["name"] for attr in element["attrs"]]
+        assert "resource-id" not in attr_names  # vacío
+        assert "text" not in attr_names  # vacío
+        
+        # content-desc tiene valor, debe aparecer
+        assert "content-desc" in attr_names
+        assert get_attr_value(element, "content-desc") == "Accessible button"
+        
+        # Booleanos siempre aparecen
+        assert "clickable" in attr_names
+        assert "enabled" in attr_names
+        assert "displayed" in attr_names
+
+    def test_is_editable_element(self):
+        """Test: Verificar si un elemento es editable."""
+        xml = """
+        <hierarchy>
+            <android.widget.EditText
+                hint="Email"
+                focusable="true"
+                class="android.widget.EditText"/>
+            <android.widget.Button
+                text="Submit"
+                clickable="true"
+                focusable="true"
+                class="android.widget.Button"/>
+        </hierarchy>
+        """
         parser = UIParser()
-        toon_output = parser.elements_to_toon(elements)
-        
-        # TOON debe contener los valores de checked
-        assert "true" in toon_output.lower()
-        assert "false" in toon_output.lower()
-        
-        logger.info(f"TOON output with checkboxes:\n{toon_output}")
+        parser.parse_screen(xml)
 
-    def test_parse_screen_to_toon_direct(self):
-        """Test: Parsear XML directamente a formato TOON."""
+        # EditText es editable
+        assert parser.is_editable_element(0) is True
+        # Button no es editable
+        assert parser.is_editable_element(1) is False
+        # ID inexistente
+        assert parser.is_editable_element(99) is False
+
+
+class TestUIParserAttrStructure:
+    """Tests específicos para la estructura de atributos {name, value}."""
+
+    def test_attr_structure_consistency(self):
+        """Test: La estructura de attrs siempre es [{name, value}]."""
         xml = """
         <hierarchy>
             <android.widget.EditText
                 hint="Usuario"
+                text="test@email.com"
+                focusable="true"
+                enabled="true"
+                displayed="true"
                 class="android.widget.EditText"
-                resource-id="com.example:id/username"/>
-            <android.widget.EditText
-                hint="Contraseña"
-                class="android.widget.EditText"
-                resource-id="com.example:id/password"/>
-            <android.widget.Button
-                text="Ingresar"
-                clickable="true"
-                class="android.widget.Button"
-                resource-id="com.example:id/login_btn"/>
+                resource-id="com.example:id/email"
+                bounds="[0,100][720,200]"/>
         </hierarchy>
         """
-        
         parser = UIParser()
-        toon_output = parser.parse_screen_to_toon(xml)
-        
-        # Verificar que se generó output TOON
-        assert toon_output is not None
-        assert len(toon_output) > 0
-        
-        # TOON debe contener 3 elementos
-        assert "[3" in toon_output, "TOON debe indicar 3 elementos"
-        
-        # Verificar que los resource-ids están presentes (tienen prioridad)
-        assert "username" in toon_output
-        assert "password" in toon_output
-        assert "login_btn" in toon_output
-        
-        logger.info(f"TOON output (parse_screen_to_toon):\n{toon_output}")
+        elements = parser.parse_screen(xml)
 
-    def test_toon_is_more_compact_than_json(self):
-        """Test: TOON debe ser más compacto que JSON para arrays uniformes."""
-        elements = [
-            {"id": 0, "role": "button", "label": "Login", "checked": None},
-            {"id": 1, "role": "input", "label": "Email", "checked": None},
-            {"id": 2, "role": "input", "label": "Password", "checked": None},
-            {"id": 3, "role": "checkbox", "label": "Remember", "checked": False},
-            {"id": 4, "role": "button", "label": "Forgot password?", "checked": None},
-        ]
+        element = elements[0]
         
-        parser = UIParser()
-        toon_output = parser.elements_to_toon(elements)
-        json_output = json.dumps(elements)
-        
-        # TOON debe ser significativamente más corto que JSON
-        toon_len = len(toon_output)
-        json_len = len(json_output)
-        
-        logger.info(f"Comparación de tamaños:")
-        logger.info(f"  JSON: {json_len} caracteres")
-        logger.info(f"  TOON: {toon_len} caracteres")
-        logger.info(f"  Ahorro: {((json_len - toon_len) / json_len * 100):.1f}%")
-        
-        # TOON debe ser al menos 20% más corto para este caso
-        assert toon_len < json_len, "TOON debe ser más compacto que JSON"
-        
-        logger.info(f"\nJSON:\n{json_output}")
-        logger.info(f"\nTOON:\n{toon_output}")
+        # Cada atributo debe tener exactamente 'name' y 'value'
+        for attr in element["attrs"]:
+            assert set(attr.keys()) == {"name", "value"}, \
+                f"Attr debe tener solo 'name' y 'value', tiene: {attr.keys()}"
 
-    def test_elements_to_toon_special_characters(self):
-        """Test: TOON maneja correctamente caracteres especiales en labels."""
-        elements = [
-            {"id": 0, "role": "button", "label": "Botón con ñ y áéíóú", "checked": None},
-            {"id": 1, "role": "input", "label": "Campo, con coma", "checked": None},
-        ]
-        
+    def test_json_serializable(self):
+        """Test: Los elementos deben ser serializables a JSON."""
+        xml = """
+        <hierarchy>
+            <android.widget.Button
+                text="Botón con ñ y áéíóú"
+                content-desc="Descripción"
+                clickable="true"
+                focusable="true"
+                enabled="true"
+                class="android.widget.Button"/>
+        </hierarchy>
+        """
         parser = UIParser()
-        toon_output = parser.elements_to_toon(elements)
+        elements = parser.parse_screen(xml)
+
+        # Debe poder serializar a JSON sin errores
+        json_str = json.dumps(elements, ensure_ascii=False)
+        assert "Botón con ñ y áéíóú" in json_str
         
-        # Verificar que los caracteres especiales están presentes
-        assert "ñ" in toon_output or "Botón" in toon_output
+        # Debe poder deserializar de vuelta
+        parsed = json.loads(json_str)
+        assert len(parsed) == 1
+        assert parsed[0]["id"] == 0
+
+    def test_element_with_all_locators(self):
+        """Test: Elemento con todos los atributos de localización."""
+        xml = """
+        <hierarchy>
+            <android.widget.Button
+                resource-id="com.example:id/btn"
+                content-desc="Login button"
+                text="Login"
+                clickable="true"
+                focusable="true"
+                enabled="true"
+                displayed="true"
+                class="android.widget.Button"
+                bounds="[0,0][100,50]"/>
+        </hierarchy>
+        """
+        parser = UIParser()
+        elements = parser.parse_screen(xml)
+
+        element = elements[0]
         
-        logger.info(f"TOON with special chars:\n{toon_output}")
+        # Verificar que todos los locators están presentes
+        assert get_attr_value(element, "resource-id") == "com.example:id/btn"
+        assert get_attr_value(element, "content-desc") == "Login button"
+        assert get_attr_value(element, "text") == "Login"
+        assert get_attr_value(element, "xpath") != ""  # Siempre debe tener xpath
+
+
+class TestUIParserHelperMethods:
+    """Tests para métodos helper del UIParser."""
+
+    def test_get_attr_value_helper(self):
+        """Test: El método _get_attr_value funciona correctamente."""
+        xml = """
+        <hierarchy>
+            <android.widget.Button
+                text="Test"
+                clickable="true"
+                focusable="true"
+                class="android.widget.Button"/>
+        </hierarchy>
+        """
+        parser = UIParser()
+        elements = parser.parse_screen(xml)
+        element = elements[0]
+
+        # Usar el método helper interno
+        assert parser._get_attr_value(element, "text") == "Test"
+        assert parser._get_attr_value(element, "class") == "android.widget.Button"
+        assert parser._get_attr_value(element, "nonexistent") == ""
+        assert parser._get_attr_value(element, "nonexistent", "default") == "default"
+
+    def test_clear_resets_state(self):
+        """Test: clear() resetea el estado del parser."""
+        xml = """
+        <hierarchy>
+            <android.widget.Button
+                text="Test"
+                clickable="true"
+                focusable="true"
+                class="android.widget.Button"/>
+        </hierarchy>
+        """
+        parser = UIParser()
+        parser.parse_screen(xml)
+        
+        assert len(parser.element_map) == 1
+        assert parser.current_id == 1
+        
+        parser.clear()
+        
+        assert len(parser.element_map) == 0
+        assert parser.current_id == 0

@@ -64,6 +64,15 @@ class Config:
     UI_STABILITY_INTERVAL: float = float(os.getenv("UI_STABILITY_INTERVAL", "0.3"))
     # UI_STABILITY_THRESHOLD: Número de verificaciones consecutivas sin cambios requeridas
     UI_STABILITY_THRESHOLD: int = int(os.getenv("UI_STABILITY_THRESHOLD", "2"))
+    
+    # Configuración del Test Runner (prevención de loops infinitos)
+    # MAX_RETRIES_PER_STEP: Máximo de reintentos por paso cuando hay errores recuperables
+    MAX_RETRIES_PER_STEP: int = int(os.getenv("MAX_RETRIES_PER_STEP", "1"))
+    # MAX_ACTIONS_PER_STEP: Máximo de acciones diferentes permitidas por paso
+    MAX_ACTIONS_PER_STEP: int = int(os.getenv("MAX_ACTIONS_PER_STEP", "10"))
+    # MAX_REPEATED_ACTION_ATTEMPTS: Máximo de intentos de la MISMA acción antes de fallar
+    # (detecta cuando la IA está atascada repitiendo una acción sin progreso)
+    MAX_REPEATED_ACTION_ATTEMPTS: int = int(os.getenv("MAX_REPEATED_ACTION_ATTEMPTS", "3"))
 
     @classmethod
     def debug_print_config(cls) -> None:
@@ -114,6 +123,13 @@ class Config:
         logger.info(f"    UI_STABILITY_TIMEOUT: {cls.UI_STABILITY_TIMEOUT}s")
         logger.info(f"    UI_STABILITY_INTERVAL: {cls.UI_STABILITY_INTERVAL}s")
         logger.info(f"    UI_STABILITY_THRESHOLD: {cls.UI_STABILITY_THRESHOLD} checks")
+        
+        # Test Runner (prevención de loops)
+        logger.info("-" * 40)
+        logger.info("  Test Runner:")
+        logger.info(f"    MAX_RETRIES_PER_STEP: {cls.MAX_RETRIES_PER_STEP} reintentos")
+        logger.info(f"    MAX_ACTIONS_PER_STEP: {cls.MAX_ACTIONS_PER_STEP} acciones")
+        logger.info(f"    MAX_REPEATED_ACTION_ATTEMPTS: {cls.MAX_REPEATED_ACTION_ATTEMPTS} intentos")
         logger.info("=" * 70)
 
     @classmethod
@@ -194,22 +210,22 @@ class Config:
             "appium:deviceName": cls.ANDROID_DEVICE_NAME,
             "appium:newCommandTimeout": cls.DEFAULT_WAIT_TIMEOUT * 60,  # En segundos
         }
-        logger.debug(f"CONFIG: Capabilities base: platformName={cls.ANDROID_PLATFORM_NAME}, "
-                    f"automationName={cls.ANDROID_AUTOMATION_NAME}, deviceName={cls.ANDROID_DEVICE_NAME}")
+        #logger.debug(f"CONFIG: Capabilities base: platformName={cls.ANDROID_PLATFORM_NAME}, "
+        #            f"automationName={cls.ANDROID_AUTOMATION_NAME}, deviceName={cls.ANDROID_DEVICE_NAME}")
 
         # Agregar UDID si está configurado
         if cls.ANDROID_UDID:
             capabilities["appium:udid"] = cls.ANDROID_UDID
-            logger.debug(f"CONFIG: Usando UDID configurado: {cls.ANDROID_UDID}")
+            #logger.debug(f"CONFIG: Usando UDID configurado: {cls.ANDROID_UDID}")
         else:
             # Si no hay UDID, usar deviceName como UDID
             capabilities["appium:udid"] = cls.ANDROID_DEVICE_NAME
-            logger.debug(f"CONFIG: Usando deviceName como UDID: {cls.ANDROID_DEVICE_NAME}")
+            #logger.debug(f"CONFIG: Usando deviceName como UDID: {cls.ANDROID_DEVICE_NAME}")
 
         # Agregar ruta del APK si está configurada (prioridad sobre package/activity)
         if cls.ANDROID_APP_PATH:
             capabilities["appium:app"] = cls.ANDROID_APP_PATH
-            logger.debug(f"CONFIG: Usando APK path: {cls.ANDROID_APP_PATH}")
+            #logger.debug(f"CONFIG: Usando APK path: {cls.ANDROID_APP_PATH}")
             # Verificar si el archivo existe
             import os as os_check
             if not os_check.path.exists(cls.ANDROID_APP_PATH):
@@ -218,10 +234,10 @@ class Config:
         # Agregar app package y activity si están configurados
         if cls.ANDROID_APP_PACKAGE:
             capabilities["appium:appPackage"] = cls.ANDROID_APP_PACKAGE
-            logger.debug(f"CONFIG: App package: {cls.ANDROID_APP_PACKAGE}")
+            #logger.debug(f"CONFIG: App package: {cls.ANDROID_APP_PACKAGE}")
         if cls.ANDROID_APP_ACTIVITY:
             capabilities["appium:appActivity"] = cls.ANDROID_APP_ACTIVITY
-            logger.debug(f"CONFIG: App activity: {cls.ANDROID_APP_ACTIVITY}")
+            #logger.debug(f"CONFIG: App activity: {cls.ANDROID_APP_ACTIVITY}")
 
         # Agregar capabilities opcionales para mejor compatibilidad
         capabilities["appium:autoGrantPermissions"] = cls.ANDROID_AUTO_GRANT_PERMISSIONS
@@ -230,10 +246,10 @@ class Config:
         capabilities["appium:skipDeviceInitialization"] = False
         capabilities["appium:disableSuppressAccessibilityService"] = True
 
-        logger.debug(f"CONFIG: Total de capabilities construidas: {len(capabilities)}")
-        logger.debug("CONFIG: Capabilities finales:")
-        for key, value in capabilities.items():
-            logger.debug(f"  {key}: {value}")
+        #logger.debug(f"CONFIG: Total de capabilities construidas: {len(capabilities)}")
+        #logger.debug("CONFIG: Capabilities finales:")
+        #for key, value in capabilities.items():
+        #    logger.debug(f"  {key}: {value}")
         
         return capabilities
 

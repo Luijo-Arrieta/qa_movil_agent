@@ -341,6 +341,28 @@ class AppiumSkills:
         # Obtener XML final
         return self.get_screen_tree()
 
+    def _touch_by_coordinates(self, element) -> None:
+        """
+        Hace touch en un elemento usando sus coordenadas (fallback cuando click() falla).
+        
+        Similar al _touchOnW3C de WebdriverIO. Útil cuando el elemento no es
+        clickable directamente pero sí puede recibir touch por coordenadas.
+        
+        Args:
+            element: Elemento de Appium ya encontrado
+        """
+        location = element.location
+        size = element.size
+        center_x = int(location["x"] + size["width"] / 2)
+        center_y = int(location["y"] + size["height"] / 2)
+        
+        logger.debug(f"AGENT_TOOLS: Touch por coordenadas en ({center_x}, {center_y})")
+        
+        self.driver.execute_script("mobile: clickGesture", {
+            "x": center_x,
+            "y": center_y
+        })
+
     def touch_element_by_id(self, element_id: int) -> str:
         """
         Hace clic en un elemento usando su ID del UIParser.
@@ -429,9 +451,11 @@ class AppiumSkills:
         """
         try:
             # Estrategia: XPath dinámico basado en texto
+            # Escapar comillas simples para evitar conflictos con el delimitador del XPath
+            text_description_escaped = text_description.replace("'", "\\'")
             xpath = (
-                f"//*[@text='{text_description}' or contains(@text, '{text_description}') "
-                f"or @content-desc='{text_description}' or contains(@content-desc, '{text_description}')]"
+                f"//*[@text='{text_description_escaped}' or contains(@text, '{text_description_escaped}') "
+                f"or @content-desc='{text_description_escaped}' or contains(@content-desc, '{text_description_escaped}')]"
             )
             element = self.driver.find_element(AppiumBy.XPATH, xpath)
             element.click()
@@ -443,6 +467,10 @@ class AppiumSkills:
     def fill_field_by_id(self, element_id: int, value: str) -> str:
         """
         Escribe texto en un campo usando su ID del UIParser.
+        
+        VALIDACIONES:
+        - Solo acepta elementos cuya clase contenga "EditText"
+        - Verifica que el texto se escribió correctamente después de la operación
 
         Args:
             element_id: ID del elemento (asignado por UIParser)
@@ -457,50 +485,101 @@ class AppiumSkills:
         
         logger.info(f"AGENT_TOOLS: ⌨️ Ejecutando {action_name}(element_id={element_id}, value='{value}')")
         
-        # Paso 1: Obtener XPath del mapeo
-        logger.debug(f"AGENT_TOOLS: Buscando XPath para ID {element_id}...")
-        xpath = self.ui_parser.get_element_by_id(element_id)
+        # Paso 1: Obtener info completa del elemento
+        logger.debug(f"AGENT_TOOLS: Buscando info para ID {element_id}...")
+        element_info = self.ui_parser.get_element_info_by_id(element_id)
         
-        if not xpath:
+        if not element_info:
             error_msg = f"Error: Elemento con ID {element_id} no encontrado en el mapeo"
             logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
-            # DEBUG: Dump completo del mapeo para diagnóstico
             self.ui_parser.debug_dump_element_map(log_output=True)
             self._action_stats["failed_actions"] += 1
             return error_msg
         
-        logger.debug(f"AGENT_TOOLS: XPath encontrado: {xpath}")
+        # Paso 2: Convertir attrs a diccionario para acceso directo
+        attrs_dict = {attr.get("name"): attr.get("value", "") for attr in element_info.get("attrs", [])}
+        
+        element_class = attrs_dict.get("class", "")
+        xpath = attrs_dict.get("xpath", "")
+        is_password = attrs_dict.get("password", "false").lower() == "true"
+        
+        # Validación específica de EditText (responsabilidad única de fill_field_by_id)
+        if "edittext" not in element_class.lower():
+            error_msg = f"Error: Elemento ID {element_id} no es un campo de texto. Clase: '{element_class}'. Solo se puede escribir en elementos EditText."
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            logger.error(f"AGENT_TOOLS ERROR: Usa touch_element_by_id para elementos no editables")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+        
+        if not xpath:
+            error_msg = f"Error: No se pudo obtener XPath para elemento ID {element_id}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+        
+        logger.debug(f"AGENT_TOOLS: Clase válida: {element_class}")
+        logger.debug(f"AGENT_TOOLS: XPath: {xpath}")
 
         start_time = time.time()
         try:
-            # Paso 2: Buscar elemento
+            # Paso 3: Buscar elemento UNA sola vez
             logger.debug("AGENT_TOOLS: Buscando elemento con XPath...")
             element = self.driver.find_element(AppiumBy.XPATH, xpath)
             logger.debug("AGENT_TOOLS: ✓ Elemento encontrado")
             
-            # Paso 3: Click para enfocar
+            # Paso 4: Hacer click para enfocar (con fallback a coordenadas si falla)
             logger.debug("AGENT_TOOLS: Haciendo click para enfocar...")
-            element.click()
+            try:
+                element.click()
+            except Exception as click_error:
+                logger.debug(f"AGENT_TOOLS: Click directo falló ({click_error}), usando touch por coordenadas...")
+                self._touch_by_coordinates(element)
             time.sleep(self.min_wait_timeout)
             
-            # Paso 4: Limpiar campo
+            # Paso 5: Limpiar campo
             logger.debug("AGENT_TOOLS: Limpiando campo...")
             element.clear()
             
-            # Paso 5: Escribir texto
+            # Paso 6: Escribir texto
             logger.debug(f"AGENT_TOOLS: Escribiendo texto: '{value}'")
             element.send_keys(value)
+            time.sleep(self.min_wait_timeout)
             
-            # Paso 6: Ocultar teclado
+            # Paso 7: Ocultar teclado
             logger.debug("AGENT_TOOLS: Ocultando teclado...")
-            keyboard_hidden = self.hide_keyboard()
-            logger.debug(f"AGENT_TOOLS: Teclado {'ocultado' if keyboard_hidden else 'no estaba visible'}")
+            self.hide_keyboard()
+            
+            # Paso 8: VERIFICAR que el texto se escribió correctamente
+            logger.debug("AGENT_TOOLS: Verificando que el texto se escribió correctamente...")
+            
+            # Re-buscar el elemento para obtener su estado actual
+            element = self.driver.find_element(AppiumBy.XPATH, xpath)
+            actual_text = element.text or ""
+            
+            # Verificar si el texto coincide (o si es campo de contraseña, verificar longitud)
+            if is_password:
+                # Para campos de contraseña, verificamos que hay contenido
+                # getText retorna asteriscos o vacío, validamos por longitud
+                logger.debug(f"AGENT_TOOLS: Campo de contraseña - verificación por longitud")
+                text_written = len(actual_text) == len(value) or len(actual_text) == 0  # Algunos campos ocultan todo
+            else:
+                # Para campos normales, verificamos que el texto coincida
+                text_written = value in actual_text or actual_text == value
+                if not text_written:
+                    logger.warning(f"AGENT_TOOLS WARNING: Texto esperado: '{value}', texto actual: '{actual_text}'")
             
             elapsed_ms = int((time.time() - start_time) * 1000)
-            success_msg = f"Success: Typed '{value}' into element ID {element_id}"
-            logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
-            self._action_stats["successful_actions"] += 1
-            return success_msg
+            
+            if text_written:
+                success_msg = f"Success: Typed '{value}' into element ID {element_id} (verified)"
+                logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+                self._action_stats["successful_actions"] += 1
+                return success_msg
+            else:
+                error_msg = f"Error: Text verification failed for ID {element_id}. Expected '{value}', got '{actual_text}'"
+                logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+                self._action_stats["failed_actions"] += 1
+                return error_msg
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -525,10 +604,12 @@ class AppiumSkills:
         """
         try:
             # Busca elementos de tipo EditText o Input
+            # Escapar comillas simples para evitar conflictos con el delimitador del XPath
+            field_hint_escaped = field_hint.replace("'", "\\'")
             xpath = (
-                f"//android.widget.EditText[contains(@text, '{field_hint}') "
-                f"or contains(@content-desc, '{field_hint}') "
-                f"or contains(@hint, '{field_hint}')]"
+                f"//android.widget.EditText[contains(@text, '{field_hint_escaped}') "
+                f"or contains(@content-desc, '{field_hint_escaped}') "
+                f"or contains(@hint, '{field_hint_escaped}')]"
             )
             element = self.driver.find_element(AppiumBy.XPATH, xpath)
             element.click()
@@ -723,9 +804,11 @@ class AppiumSkills:
         
         for button_text in close_buttons:
             try:
+                # Escapar comillas simples para evitar conflictos con el delimitador del XPath
+                button_text_escaped = button_text.replace("'", "\\'")
                 xpath = (
-                    f"//*[@text='{button_text}' or contains(@text, '{button_text}') "
-                    f"or @content-desc='{button_text}' or contains(@content-desc, '{button_text}')]"
+                    f"//*[@text='{button_text_escaped}' or contains(@text, '{button_text_escaped}') "
+                    f"or @content-desc='{button_text_escaped}' or contains(@content-desc, '{button_text_escaped}')]"
                 )
                 element = self.driver.find_element(AppiumBy.XPATH, xpath)
                 element.click()

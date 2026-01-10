@@ -33,26 +33,26 @@ def check_appium_server():
     appium_url = Config.APPIUM_SERVER_URL
     status_url = f"{appium_url}/status"
     
-    logger.debug(f"CONFTEST: URL del servidor: {appium_url}")
-    logger.debug(f"CONFTEST: URL de status: {status_url}")
+    #logger.debug(f"CONFTEST: URL del servidor: {appium_url}")
+    #logger.debug(f"CONFTEST: URL de status: {status_url}")
     
     try:
-        logger.debug("CONFTEST: Enviando request GET a /status...")
+        #logger.debug("CONFTEST: Enviando request GET a /status...")
         response = requests.get(status_url, timeout=5)
         
-        logger.debug(f"CONFTEST: Response status code: {response.status_code}")
-        logger.debug(f"CONFTEST: Response headers: {dict(response.headers)}")
+        #logger.debug(f"CONFTEST: Response status code: {response.status_code}")
+        #logger.debug(f"CONFTEST: Response headers: {dict(response.headers)}")
         
         if response.status_code == 200:
             # Intentar parsear la respuesta JSON para más info
             try:
                 status_data = response.json()
-                logger.debug(f"CONFTEST: Status response: {status_data}")
+                #logger.debug(f"CONFTEST: Status response: {status_data}")
                 
                 # Extraer info del servidor si está disponible
                 if 'value' in status_data and 'build' in status_data.get('value', {}):
                     build_info = status_data['value']['build']
-                    logger.info(f"CONFTEST: Appium version: {build_info.get('version', 'N/A')}")
+                    #logger.info(f"CONFTEST: Appium version: {build_info.get('version', 'N/A')}")
             except Exception:
                 pass
             
@@ -121,13 +121,13 @@ def driver_setup():
     Config.debug_print_config()
     
     capabilities = Config.get_appium_capabilities()
-    logger.info(f"CONFTEST: 📱 Capabilities configuradas:")
-    for key, value in capabilities.items():
+    #logger.info(f"CONFTEST: 📱 Capabilities configuradas:")
+    #for key, value in capabilities.items():
         # Ocultar información sensible
-        display_value = value
-        if "key" in key.lower() or "password" in key.lower():
-            display_value = "***HIDDEN***"
-        logger.info(f"CONFTEST:    {key}: {display_value}")
+    #    display_value = value
+    #    if "key" in key.lower() or "password" in key.lower():
+    #        display_value = "***HIDDEN***"
+    #    #logger.info(f"CONFTEST:    {key}: {display_value}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # FASE 3: Crear opciones de Android
@@ -136,7 +136,7 @@ def driver_setup():
     logger.info("CONFTEST: FASE 3 - Creando UiAutomator2Options...")
     options = UiAutomator2Options()
     for key, value in capabilities.items():
-        logger.debug(f"CONFTEST: Seteando capability: {key}={value}")
+        #logger.debug(f"CONFTEST: Seteando capability: {key}={value}")
         options.set_capability(key, value)
     logger.info("CONFTEST: ✓ Options creadas")
 

@@ -33,8 +33,45 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 - `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs.
 - `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert)
 - `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic) with function calling. Uses TOON format for token efficiency.
-- `src/test_runner.py` - Orchestrates test execution with retry system (max 3 attempts per step)
+- `src/test_runner.py` - Orchestrates test execution with intelligent retry system (max 3 attempts per step)
 - `src/config.py` - Environment configuration. Loads `.env` then `.env.local` (override)
+
+## Error Handling and Retry System
+
+The test runner implements an intelligent error handling system that distinguishes between recoverable and non-recoverable errors.
+
+### Recoverable Errors (Will Retry)
+
+These errors are temporary and may resolve on retry:
+- `TimeoutException` - Temporary timeouts
+- `NoSuchElementException` - Element not found (may appear later)
+- `ElementNotInteractableException` - Element not interactable (state may change)
+- `StaleElementReferenceException` - Stale element reference (can be resolved)
+- `WebDriverException` - Some temporary driver errors (except session errors)
+
+**Behavior:** The system will retry up to `max_retries` (default: 3) times with a 2-second delay between attempts.
+
+### Non-Recoverable Errors (Fail Immediately)
+
+These errors indicate programming/configuration issues and won't be fixed by retrying:
+- `ValueError` - Invalid data or structure
+- `KeyError` - Missing dictionary key
+- `TypeError` - Incorrect types
+- `AttributeError` - Missing attribute
+- `SyntaxError` - Syntax errors
+- `NameError` - Undefined name
+- `ImportError` - Import errors
+- `WebDriverException` with session errors (e.g., "session not created", "invalid session id")
+
+**Behavior:** The test fails immediately without retries, providing clear error messages indicating the issue needs to be fixed in code/configuration.
+
+### Implementation
+
+The `_is_recoverable_error()` function in `src/test_runner.py` classifies errors automatically. When a non-recoverable error occurs, the test runner:
+1. Logs the error with full traceback
+2. Indicates it's a non-recoverable error
+3. Fails immediately without wasting time on retries
+4. Provides guidance to check configuration, data structure, or code
 
 ## Commands
 
@@ -116,47 +153,53 @@ adb devices
 
 ## UIParser Output Format
 
-### Element Structure
-UIParser extracts interactable elements with real Android XML properties:
+### Internal Structure (JSON)
+UIParser returns elements with a consistent structure using `{id, attrs}`:
+
+```json
+{
+  "id": 0,
+  "attrs": [
+    {"name": "content-desc", "value": "Login Button"},
+    {"name": "class", "value": "android.widget.Button"},
+    {"name": "xpath", "value": "//android.widget.Button[@content-desc=\"Login Button\"]"},
+    {"name": "bounds", "value": "[100,200][300,250]"},
+    {"name": "clickable", "value": "true"},
+    {"name": "enabled", "value": "true"},
+    {"name": "displayed", "value": "true"}
+  ]
+}
+```
+
+**Why this structure?**
+- `attrs` is always a list of `{name, value}` objects (consistent schema)
+- Only non-empty attributes are included (except booleans)
+- Easy to extend without breaking structure
 
 **Inclusion Criteria (focusable="true" is REQUIRED):**
 - `clickable="true"` with useful info (text, content-desc, or resource-id)
 - `EditText` elements (inputs) - always included
 - `ImageView` + clickable (image buttons) - always included
 
-**Output Properties (ordered by selector priority):**
-1. `resource-id` - Most stable and unique identifier
-2. `content-desc` - Accessibility description
-3. `class` - Android component class
-4. `index` - Position in parent element
-5. `xpath` - Generated XPath selector
-6. `bounds` - Element coordinates [x1,y1][x2,y2]
-7. `clickable` - "true" or "false"
-8. `displayed` - "true" or "false"
-9. `enabled` - "true" or "false"
-10. `password` - "true" or "false"
-11. `scrollable` - "true" or "false"
-12. `text` - Visible text
-13. `hint` - Input placeholder (EditText only)
-
 ### TOON Format (for LLMs)
-For communication with LLMs, UIParser outputs in **TOON (Token-Oriented Object Notation)** format, reducing token consumption by 30-60% compared to JSON.
+For communication with LLMs, elements are flattened and converted to **TOON (Token-Oriented Object Notation)** format, reducing token consumption by 30-60%.
 
 ```toon
-[2  ]{resource-id  content-desc  class  index  xpath  bounds  clickable  displayed  enabled  password  scrollable  text  hint}:
-  btn_login  Login Button  android.widget.Button  "0"  //android.widget.Button[@resource-id="btn_login"]  "[100,200][300,250]"  "true"  "true"  "true"  "false"  "false"  Login  ""
-  ""  ""  android.widget.EditText  "1"  //android.widget.EditText  "[100,300][300,350]"  "true"  "true"  "true"  "false"  "false"  ""  Enter email
+[2]{id	content-desc	class	xpath	clickable	enabled}:
+  0	Login Button	android.widget.Button	//android.widget.Button[@content-desc="Login Button"]	true	true
+  1		android.widget.EditText	//android.widget.EditText[1]	true	true
 ```
+
+**Data Flow:**
+1. UIParser generates `{id, attrs: [{name, value}]}` internally
+2. AI Orchestrator flattens to `{id, content-desc, class, ...}` for TOON
+3. LLM receives TOON format with attributes as columns
 
 **Why TOON?**
 - Uses tabular format with headers, reducing repetition
 - Tab-separated values for maximum token efficiency
 - Maintains full data fidelity (lossless)
 - See: https://github.com/toon-format/toon
-
-**Methods:**
-- `parser.elements_to_toon(elements)` - Convert element list to TOON
-- `parser.parse_screen_to_toon(xml)` - Parse XML directly to TOON
 
 ## AI Tools Available
 
