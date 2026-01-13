@@ -31,7 +31,7 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 5. Agent Tools executes action via Appium using the XPath
 
 **Key Components:**
-- `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs.
+- `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs. Generates hierarchical XPaths similar to Appium Inspector (short, readable paths).
 - `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert)
 - `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic) with function calling. Uses TOON format for token efficiency.
 - `src/test_runner.py` - Orchestrates test execution with intelligent retry system (max 3 attempts per step)
@@ -182,18 +182,43 @@ UIParser returns elements with a consistent structure using `{id, attrs}`:
 - `EditText` elements (inputs) - always included
 - `ImageView` + clickable (image buttons) - always included
 
+### XPath Generation (Hierarchical)
+
+UIParser generates **short, hierarchical XPaths** similar to Appium Inspector:
+
+**Strategy:**
+- When an element has a unique identifier (resource-id, content-desc, or text), the XPath "restarts" with `//` from that point
+- Elements without identifiers continue accumulating the path from their parent with `/`
+- This generates concise XPaths that match Appium Inspector's output
+
+**Example:**
+```
+//android.view.View[@content-desc='Iniciar sesión']/android.view.View[2]/android.widget.EditText
+```
+
+Instead of long paths from root:
+```
+//hierarchy/android.widget.FrameLayout/.../android.view.View[@content-desc='Iniciar sesión']/android.view.View[2]/android.widget.EditText
+```
+
+**XPath segment priority:**
+1. `resource-id` (most reliable): `tag[@resource-id='value']`
+2. `content-desc`: `tag[@content-desc='value']`
+3. `text`: `tag[@text='value']`
+4. Index (fallback): `tag[index]` (position among siblings of same type)
+
 ### TOON Format (for LLMs)
 For communication with LLMs, elements are flattened and converted to **TOON (Token-Oriented Object Notation)** format, reducing token consumption by 30-60%.
 
 ```toon
 [3]{id	content-desc	class	xpath	clickable	enabled}:
   0	Login	android.widget.Button	//android.widget.Button[@content-desc="Login"]	true	true
-  1		android.widget.EditText	//android.widget.EditText[1]	true	true
-  2		android.widget.EditText	//android.widget.EditText[2]	true	true
+  1		android.widget.EditText	//android.view.View[@content-desc="Login"]/android.widget.EditText[1]	true	true
+  2		android.widget.EditText	//android.view.View[@content-desc="Login"]/android.widget.EditText[2]	true	true
 ```
 
 **Data Flow:**
-1. UIParser generates `{id, attrs: [{name, value}]}` internally
+1. UIParser generates `{id, attrs: [{name, value}]}` internally with hierarchical XPaths
 2. AI Orchestrator flattens to `{id, content-desc, class, ...}` for TOON
 3. LLM receives TOON format with attributes as columns
 

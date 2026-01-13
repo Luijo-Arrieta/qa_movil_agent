@@ -8,6 +8,7 @@ import traceback
 from typing import Optional
 from appium.webdriver.common.appiumby import AppiumBy
 from appium.webdriver import Remote
+from selenium.common.exceptions import StaleElementReferenceException
 
 from src.ui_parser import UIParser
 from src.config import Config
@@ -521,6 +522,7 @@ class AppiumSkills:
         logger.debug(f"AGENT_TOOLS: XPath: {xpath}")
 
         start_time = time.time()
+        result_msg = ""
         try:
             # Paso 3: Buscar elemento UNA sola vez
             logger.debug("AGENT_TOOLS: Buscando elemento con XPath...")
@@ -545,51 +547,62 @@ class AppiumSkills:
             element.send_keys(value)
             time.sleep(self.min_wait_timeout)
             
-            # Paso 7: Ocultar teclado
-            logger.debug("AGENT_TOOLS: Ocultando teclado...")
-            self.hide_keyboard()
-            
-            # Paso 8: VERIFICAR que el texto se escribió correctamente
+            # Paso 7: VERIFICAR que el texto se escribió correctamente
+            # IMPORTANTE: Usar el mismo elemento sin re-buscarlo (el xpath puede cambiar después de escribir)
             logger.debug("AGENT_TOOLS: Verificando que el texto se escribió correctamente...")
             
-            # Re-buscar el elemento para obtener su estado actual
-            element = self.driver.find_element(AppiumBy.XPATH, xpath)
-            actual_text = element.text or ""
-            
-            # Verificar si el texto coincide (o si es campo de contraseña, verificar longitud)
-            if is_password:
-                # Para campos de contraseña, verificamos que hay contenido
-                # getText retorna asteriscos o vacío, validamos por longitud
-                logger.debug(f"AGENT_TOOLS: Campo de contraseña - verificación por longitud")
-                text_written = len(actual_text) == len(value) or len(actual_text) == 0  # Algunos campos ocultan todo
-            else:
-                # Para campos normales, verificamos que el texto coincida
-                text_written = value in actual_text or actual_text == value
-                if not text_written:
-                    logger.warning(f"AGENT_TOOLS WARNING: Texto esperado: '{value}', texto actual: '{actual_text}'")
-            
-            elapsed_ms = int((time.time() - start_time) * 1000)
-            
-            if text_written:
-                success_msg = f"Success: Typed '{value}' into element ID {element_id} (verified)"
-                logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+            try:
+                # Intentar obtener el texto del elemento existente
+                actual_text = element.text or ""
+                
+                # Verificar si el texto coincide (o si es campo de contraseña, verificar longitud)
+                if is_password:
+                    # Para campos de contraseña, verificamos que hay contenido
+                    # getText retorna asteriscos o vacío, validamos por longitud
+                    logger.debug(f"AGENT_TOOLS: Campo de contraseña - verificación por longitud")
+                    text_written = len(actual_text) == len(value) or len(actual_text) == 0  # Algunos campos ocultan todo
+                else:
+                    # Para campos normales, verificamos que el texto coincida
+                    text_written = value in actual_text or actual_text == value
+                    if not text_written:
+                        logger.warning(f"AGENT_TOOLS WARNING: Texto esperado: '{value}', texto actual: '{actual_text}'")
+                
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                
+                if text_written:
+                    result_msg = f"Success: Typed '{value}' into element ID {element_id} (verified)"
+                    logger.info(f"AGENT_TOOLS: ✓ {result_msg} (en {elapsed_ms}ms)")
+                    self._action_stats["successful_actions"] += 1
+                else:
+                    result_msg = f"Error: Text verification failed for ID {element_id}. Expected '{value}', got '{actual_text}'"
+                    logger.error(f"AGENT_TOOLS ERROR: {result_msg}")
+                    self._action_stats["failed_actions"] += 1
+                    
+            except StaleElementReferenceException:
+                # El elemento ya no existe en el DOM (la UI cambió después de escribir)
+                # Esto es común y no significa que la escritura falló
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                result_msg = f"Success: Typed '{value}' into element ID {element_id} (UI changed, verification skipped)"
+                logger.info(f"AGENT_TOOLS: ✓ {result_msg} (en {elapsed_ms}ms)")
+                logger.debug("AGENT_TOOLS: Elemento stale después de escribir - la UI cambió, asumimos éxito")
                 self._action_stats["successful_actions"] += 1
-                return success_msg
-            else:
-                error_msg = f"Error: Text verification failed for ID {element_id}. Expected '{value}', got '{actual_text}'"
-                logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
-                self._action_stats["failed_actions"] += 1
-                return error_msg
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            error_msg = f"Error: Could not fill field ID {element_id}: {str(e)}"
-            logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            result_msg = f"Error: Could not fill field ID {element_id}: {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {result_msg} (después de {elapsed_ms}ms)")
             logger.error(f"AGENT_TOOLS ERROR: XPath usado: {xpath}")
             logger.error(f"AGENT_TOOLS ERROR: Valor intentado: '{value}'")
             logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            
+        finally:
+            # SIEMPRE ocultar teclado al finalizar (éxito o error)
+            logger.debug("AGENT_TOOLS: [finally] Verificando y ocultando teclado...")
+            self.hide_keyboard()
+            time.sleep(self.min_wait_timeout)  # Esperar a que la UI se estabilice
+        
+        return result_msg
 
     def fill_field(self, field_hint: str, value: str) -> str:
         """

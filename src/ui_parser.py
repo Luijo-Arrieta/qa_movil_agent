@@ -49,7 +49,7 @@ class UIElement(TypedDict):
         "attrs": [
             {"name": "content-desc", "value": "Botón login"},
             {"name": "class", "value": "android.widget.Button"},
-            {"name": "xpath", "value": "//android.widget.Button[@content-desc='Botón login']"},
+            {"name": "xpath", "value": "//android.view.View[@content-desc='Login']/android.widget.Button"},
             {"name": "clickable", "value": "true"},
             {"name": "enabled", "value": "true"}
         ]
@@ -60,7 +60,7 @@ class UIElement(TypedDict):
     - content-desc: Descripción de accesibilidad (para localizar)
     - text: Texto visible del elemento (para localizar)
     - class: Clase del componente Android
-    - xpath: XPath generado para localizar el elemento
+    - xpath: XPath del elemento para localizarlo
     - bounds: Coordenadas [x1,y1][x2,y2]
     - clickable: Si es clickeable ("true"/"false")
     - displayed: Si está visible ("true"/"false")
@@ -98,7 +98,8 @@ class UIParser:
         """
         Parsea el XML y retorna lista de elementos interactuables.
 
-        Criterios de inclusión (focusable="true" es REQUERIDO):
+        Criterios de inclusión:
+        - focusable="true" - REQUERIDO
         - clickable="true" (con info útil: text, content-desc o resource-id)
         - Clase contiene "EditText" (inputs) - siempre incluidos
         - Clase contiene "ImageView" + clickable (botones de imagen) - siempre incluidos
@@ -124,7 +125,7 @@ class UIParser:
             - content-desc: Descripción de accesibilidad (para localizar)
             - text: Texto visible del elemento (para localizar)
             - class: Clase del componente Android (siempre)
-            - xpath: XPath generado (siempre)
+            - xpath: XPath jerárquico del elemento (siempre)
             - bounds: Coordenadas [x1,y1][x2,y2]
             - clickable, enabled, displayed: Estados booleanos (siempre)
             - password, scrollable: Solo si son "true"
@@ -193,14 +194,14 @@ class UIParser:
 
         Args:
             element: Elemento XML actual
-            parent_path: XPath del elemento padre
+            parent_path: XPath acumulado del elemento padre (para construir xpath jerárquico)
             elements: Lista donde se acumulan los elementos válidos
-            parent_element: Elemento padre (para calcular posición)
+            parent_element: Elemento padre (para calcular posición entre hermanos)
         """
         self._parse_stats["total_nodes_visited"] += 1
         
-        # Generar XPath para este elemento
-        current_path = self._generate_xpath(element, parent_element)
+        # Generar XPath jerárquico para este elemento
+        current_path = self._generate_xpath(element, parent_path, parent_element)
         
         # Log a nivel TRACE (solo si se activa)
         class_name = element.get("class", "unknown")
@@ -224,11 +225,6 @@ class UIParser:
             self._parse_stats["filtered_out"] += 1
 
         # Continuar recorriendo hijos
-        children_count = len(list(element))
-        if children_count > 0:
-            #logger.debug(f"UIPARSER TRACE: Procesando {children_count} hijos de {element.tag}")
-            pass
-
         for child in element:
             self._traverse_tree(child, current_path, elements, element)
 
@@ -237,7 +233,7 @@ class UIParser:
         Valida si un elemento debe incluirse en la lista de elementos interactuables.
 
         Reglas de inclusión:
-        - focusable="true" es REQUERIDO para cualquier elemento
+        - focusable="true" - REQUERIDO
         - clickable="true" (con info útil: text, content-desc o resource-id)
         - Clase contiene "EditText" (inputs) - se incluyen siempre
         - Clase contiene "ImageView" (botones de imagen) - se incluyen siempre
@@ -290,11 +286,11 @@ class UIParser:
 
         Args:
             element: Elemento XML
-            xpath: XPath generado para este elemento
+            xpath: XPath jerárquico generado para este elemento
             element_id: ID único asignado por UIParser (USAR ESTE EN TOOL CALLS)
 
         Returns:
-            Diccionario UIElement con id y lista de attrs, o None si no es válido
+            Diccionario UIElement con id y lista de attrs
         """
         attrs: List[UIAttribute] = []
         
@@ -318,7 +314,7 @@ class UIParser:
         class_name = element.get("class", "")
         attrs.append({"name": "class", "value": class_name})
         
-        # XPath generado (siempre se incluye)
+        # XPath del elemento (requerido - ya verificado al inicio)
         attrs.append({"name": "xpath", "value": xpath})
         
         # === ATRIBUTOS DE POSICIÓN (solo si tienen valor) ===
@@ -358,59 +354,91 @@ class UIParser:
             attrs=attrs
         )
 
-    def _generate_xpath(self, element: ET.Element, parent_element: Optional[ET.Element] = None) -> str:
+    def _generate_xpath(
+        self, element: ET.Element, parent_path: str, parent_element: Optional[ET.Element] = None
+    ) -> str:
         """
-        Genera un XPath único para el elemento.
+        Genera un XPath corto basado en la estructura del árbol XML.
+        
+        Similar a Appium Inspector: empieza desde el ancestro más cercano
+        que tenga un identificador único, generando xpaths cortos y legibles.
 
         Estrategia:
-        1. Intentar usar resource-id si es único
-        2. Usar texto si es único
-        3. Usar content-desc si es único
-        4. Fallback a posición con índice
+        - Si el elemento tiene identificador (resource-id, content-desc, text):
+          Reinicia el xpath con // (búsqueda global desde ese punto)
+        - Si no tiene identificador:
+          Continúa acumulando desde el padre con / (ruta relativa)
 
         Args:
-            element: Elemento XML
-            parent_element: Elemento padre (para calcular posición entre hermanos)
+            element: Elemento XML actual
+            parent_path: XPath acumulado del padre
+            parent_element: Elemento padre (para calcular índice entre hermanos)
 
         Returns:
-            XPath completo del elemento
+            XPath corto del elemento (similar a Appium Inspector)
         """
         tag = element.tag
-        resource_id = element.get("resource-id", "")
-        text = element.get("text", "")
-        content_desc = element.get("content-desc", "")
-
-        # Construir XPath
-        xpath = None
-
-        # Estrategia 1: Usar resource-id si está disponible (más confiable)
+        
+        # Obtener atributos identificadores
+        resource_id = element.get("resource-id", "").strip()
+        content_desc = element.get("content-desc", "").strip()
+        text = element.get("text", "").strip()
+        
+        # Determinar si este elemento tiene un identificador único
+        has_identifier = bool(resource_id or content_desc or text)
+        
+        # Construir el segmento xpath para este elemento
         if resource_id:
-            # Escapar comillas simples para evitar conflictos con el delimitador del XPath
             resource_id_escaped = resource_id.replace("'", "\\'")
-            xpath = f"//{tag}[@resource-id='{resource_id_escaped}']"
-        # Estrategia 2: Usar texto si está disponible
-        elif text:
-            # Escapar comillas simples en el texto
-            text_escaped = text.replace("'", "\\'")
-            xpath = f"//{tag}[@text='{text_escaped}']"
-        # Estrategia 3: Usar content-desc
+            segment = f"{tag}[@resource-id='{resource_id_escaped}']"
         elif content_desc:
             content_desc_escaped = content_desc.replace("'", "\\'")
-            xpath = f"//{tag}[@content-desc='{content_desc_escaped}']"
-        # Estrategia 4: Usar clase con índice (fallback)
+            segment = f"{tag}[@content-desc='{content_desc_escaped}']"
+        elif text:
+            text_escaped = text.replace("'", "\\'")
+            segment = f"{tag}[@text='{text_escaped}']"
         else:
-            # Contar posición entre hermanos del mismo tipo
-            if parent_element is not None:
-                siblings = [e for e in parent_element if e.tag == tag]
-                if len(siblings) > 1:
-                    index = siblings.index(element) + 1
-                    xpath = f"//{tag}[{index}]"
-                else:
-                    xpath = f"//{tag}"
+            # Sin identificador: usar índice entre hermanos del mismo tipo
+            index = self._get_sibling_index(element, parent_element)
+            if index > 1:
+                segment = f"{tag}[{index}]"
             else:
-                xpath = f"//{tag}"
-
-        return xpath
+                segment = tag
+        
+        # Si tiene identificador, reiniciar el xpath (como Appium Inspector)
+        if has_identifier:
+            return f"//{segment}"
+        
+        # Si no tiene identificador, acumular desde el padre
+        if parent_path:
+            return f"{parent_path}/{segment}"
+        else:
+            return f"//{segment}"
+    
+    def _get_sibling_index(self, element: ET.Element, parent_element: Optional[ET.Element]) -> int:
+        """
+        Calcula el índice (1-based) del elemento entre sus hermanos del mismo tipo.
+        
+        Args:
+            element: Elemento actual
+            parent_element: Elemento padre
+            
+        Returns:
+            Índice del elemento (1 si es el primero o único de su tipo)
+        """
+        if parent_element is None:
+            return 1
+        
+        tag = element.tag
+        index = 1
+        
+        for sibling in parent_element:
+            if sibling is element:
+                break
+            if sibling.tag == tag:
+                index += 1
+        
+        return index
 
     def get_element_by_id(self, element_id: int) -> Optional[str]:
         """
