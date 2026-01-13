@@ -383,7 +383,10 @@ Espera a que se instalen todas las dependencias (puede tardar 2-3 minutos).
    # DEEPSEEK_API_KEY=sk-tu-api-key-aqui
 
    ANDROID_DEVICE_NAME=emulator-5554
-   ANDROID_APP_PATH=D:/ruta/a/tu/app.apk
+   
+   # IMPORTANTE: La app debe estar instalada manualmente en el dispositivo/emulador
+   ANDROID_APP_PACKAGE=com.tu.app.package
+   ANDROID_APP_ACTIVITY=.MainActivity
    ```
 
 4. Guarda y cierra el archivo.

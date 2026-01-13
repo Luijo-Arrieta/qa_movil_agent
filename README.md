@@ -109,9 +109,7 @@ ANDROID_DEVICE_NAME=emulator-5554
 ANDROID_UDID=emulator-5554  # Opcional: UDID del dispositivo (por defecto usa ANDROID_DEVICE_NAME)
 
 # Configuración de la App Android
-# Opción 1: Usar ruta al APK (recomendado para instalar la app)
-ANDROID_APP_PATH=D:/Imagine/gofixi/utils/apk/2025-12-19-cliente.apk
-# Opción 2: Usar package y activity (si la app ya está instalada)
+# IMPORTANTE: La app debe estar instalada manualmente en el dispositivo/emulador
 ANDROID_APP_PACKAGE=com.imagineapps.gofixiicliente
 ANDROID_APP_ACTIVITY=.MainActivity
 

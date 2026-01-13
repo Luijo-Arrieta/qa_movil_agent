@@ -131,7 +131,8 @@ tests/
 Copy `.env.example` to `.env.local` and configure:
 - `AI_PROVIDER`: "openai" or "anthropic"
 - `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`
-- `ANDROID_APP_PATH`: Path to APK (recommended) OR `ANDROID_APP_PACKAGE` + `ANDROID_APP_ACTIVITY`
+- `ANDROID_APP_PACKAGE`: Package name of the app (app must be installed manually)
+- `ANDROID_APP_ACTIVITY`: Main activity of the app
 - `ANDROID_DEVICE_NAME`: Device/emulator ID (check with `adb devices`)
 
 ## Pre-requisites for Integration Tests

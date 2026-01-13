@@ -46,7 +46,6 @@ class Config:
     ANDROID_DEVICE_NAME: str = os.getenv("ANDROID_DEVICE_NAME", "emulator-5554")
     ANDROID_APP_PACKAGE: Optional[str] = os.getenv("ANDROID_APP_PACKAGE")
     ANDROID_APP_ACTIVITY: Optional[str] = os.getenv("ANDROID_APP_ACTIVITY")
-    ANDROID_APP_PATH: Optional[str] = os.getenv("ANDROID_APP_PATH")  # Ruta al APK
     ANDROID_UDID: Optional[str] = os.getenv("ANDROID_UDID")  # UDID del dispositivo
     ANDROID_AUTOMATION_NAME: str = os.getenv("ANDROID_AUTOMATION_NAME", "UiAutomator2")
     ANDROID_AUTO_GRANT_PERMISSIONS: bool = os.getenv("ANDROID_AUTO_GRANT_PERMISSIONS", "true").lower() == "true"
@@ -111,7 +110,6 @@ class Config:
         logger.info(f"  ANDROID_DEVICE_NAME: {cls.ANDROID_DEVICE_NAME}")
         logger.info(f"  ANDROID_APP_PACKAGE: {cls.ANDROID_APP_PACKAGE or 'NO configurado'}")
         logger.info(f"  ANDROID_APP_ACTIVITY: {cls.ANDROID_APP_ACTIVITY or 'NO configurado'}")
-        logger.info(f"  ANDROID_APP_PATH: {cls.ANDROID_APP_PATH or 'NO configurado'}")
         logger.info(f"  ANDROID_UDID: {cls.ANDROID_UDID or 'NO configurado'}")
         logger.info(f"  ANDROID_AUTOMATION_NAME: {cls.ANDROID_AUTOMATION_NAME}")
         
@@ -180,9 +178,9 @@ class Config:
         # Validar configuración de Appium
         logger.debug("CONFIG: Validando configuración de Appium...")
         
-        if not cls.ANDROID_APP_PATH and not cls.ANDROID_APP_PACKAGE:
-            warnings.append("Ni ANDROID_APP_PATH ni ANDROID_APP_PACKAGE están configurados. "
-                          "Debes configurar al menos uno para iniciar la app.")
+        if not cls.ANDROID_APP_PACKAGE:
+            warnings.append("ANDROID_APP_PACKAGE no está configurado. "
+                          "Debes configurarlo para iniciar la app (la app debe estar instalada manualmente).")
         
         if cls.ANDROID_APP_PACKAGE and not cls.ANDROID_APP_ACTIVITY:
             warnings.append("ANDROID_APP_PACKAGE está configurado pero ANDROID_APP_ACTIVITY no. "
@@ -237,16 +235,7 @@ class Config:
             capabilities["appium:udid"] = cls.ANDROID_DEVICE_NAME
             #logger.debug(f"CONFIG: Usando deviceName como UDID: {cls.ANDROID_DEVICE_NAME}")
 
-        # Agregar ruta del APK si está configurada (prioridad sobre package/activity)
-        if cls.ANDROID_APP_PATH:
-            capabilities["appium:app"] = cls.ANDROID_APP_PATH
-            #logger.debug(f"CONFIG: Usando APK path: {cls.ANDROID_APP_PATH}")
-            # Verificar si el archivo existe
-            import os as os_check
-            if not os_check.path.exists(cls.ANDROID_APP_PATH):
-                logger.warning(f"CONFIG WARNING: El archivo APK no existe: {cls.ANDROID_APP_PATH}")
-
-        # Agregar app package y activity si están configurados
+        # Agregar app package y activity (la app debe estar instalada manualmente)
         if cls.ANDROID_APP_PACKAGE:
             capabilities["appium:appPackage"] = cls.ANDROID_APP_PACKAGE
             #logger.debug(f"CONFIG: App package: {cls.ANDROID_APP_PACKAGE}")

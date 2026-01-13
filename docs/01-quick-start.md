@@ -136,11 +136,13 @@ emulator-5554   device
 **Causa:** No está configurada la aplicación a probar.
 
 **Solución:**
-1. Abre el archivo `.env.local` (o créalo si no existe)
-2. Agrega la ruta a tu APK:
+1. Asegúrate de que la app esté instalada manualmente en el dispositivo/emulador
+2. Abre el archivo `.env.local` (o créalo si no existe)
+3. Agrega el package y activity de la app:
 
 ```
-ANDROID_APP_PATH=D:/ruta/a/tu/app.apk
+ANDROID_APP_PACKAGE=com.tu.app.package
+ANDROID_APP_ACTIVITY=.MainActivity
 ```
 
 ### Error: "poetry: command not found"
