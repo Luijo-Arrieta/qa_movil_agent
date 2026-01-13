@@ -13,6 +13,7 @@ import traceback
 from typing import List, Dict, Optional, Any
 from typing_extensions import TypedDict
 import re
+import json
 
 from toon_format import encode as toon_encode
 
@@ -20,40 +21,58 @@ from toon_format import encode as toon_encode
 logger = logging.getLogger(__name__)
 
 
-# TypedDict con claves que contienen guiones (usando sintaxis funcional)
-# Esto permite usar los mismos nombres que el XML de Appium
-UIElement = TypedDict(
-    "UIElement",
-    {
-        "resource-id": str,  # ID del recurso Android
-        "content-desc": str,  # Descripción de accesibilidad
-        "class": str,  # Clase del componente Android
-        "index": str,  # Índice del elemento en su padre
-        "xpath": str,  # XPath generado para localizar el elemento
-        "bounds": str,  # Coordenadas [x1,y1][x2,y2]
-        "clickable": str,  # "true" o "false"
-        "displayed": str,  # "true" o "false"
-        "enabled": str,  # "true" o "false"
-        "password": str,  # "true" o "false"
-        "scrollable": str,  # "true" o "false"
-        "text": str,  # Texto visible del elemento
-        "hint": str,  # Placeholder del input
-    },
-)
-"""
-UIElement - Representa un elemento de UI extraído del XML de Appium.
+# TypedDict para representar un atributo de elemento Android
+class UIAttribute(TypedDict):
+    """
+    Representa un atributo de un elemento Android.
+    
+    Estructura fija {name, value} que permite:
+    - Schema consistente (siempre las mismas claves)
+    - Flexibilidad (solo incluir atributos con valor)
+    - Fácil extensión (agregar/quitar atributos sin romper estructura)
+    """
+    name: str   # Nombre del atributo Android (ej: "content-desc", "resource-id")
+    value: str  # Valor del atributo
 
-Las propiedades están ordenadas por prioridad para construir selectores:
-1. resource-id (más estable y único)
-2. content-desc (accesibilidad)
-3. class (tipo de elemento)
-4. index (posición en padre)
-5. xpath (selector generado)
-6. bounds (coordenadas)
-7-11. Propiedades booleanas (clickable, displayed, enabled, password, scrollable)
-12. text (texto visible)
-13. hint (placeholder para inputs)
-"""
+
+class UIElement(TypedDict):
+    """
+    Representa un elemento de UI extraído del XML de Appium.
+    
+    Estructura:
+    - id: ID único asignado por UIParser (USAR ESTE EN TOOL CALLS como element_id)
+    - attrs: Lista de atributos del elemento con estructura fija {name, value}
+    
+    Ejemplo:
+    {
+        "id": 0,
+        "attrs": [
+            {"name": "content-desc", "value": "Botón login"},
+            {"name": "class", "value": "android.widget.Button"},
+            {"name": "xpath", "value": "//android.view.View[@content-desc='Login']/android.widget.Button"},
+            {"name": "clickable", "value": "true"},
+            {"name": "enabled", "value": "true"}
+        ]
+    }
+    
+    Atributos posibles en attrs:
+    - resource-id: ID del recurso Android (para localizar)
+    - content-desc: Descripción de accesibilidad (para localizar)
+    - text: Texto visible del elemento (para localizar)
+    - class: Clase del componente Android
+    - xpath: XPath del elemento para localizarlo
+    - bounds: Coordenadas [x1,y1][x2,y2]
+    - clickable: Si es clickeable ("true"/"false")
+    - displayed: Si está visible ("true"/"false")
+    - enabled: Si está habilitado ("true"/"false")
+    - password: Si es campo de contraseña ("true"/"false")
+    - scrollable: Si es scrolleable ("true"/"false")
+    - hint: Placeholder del input
+    
+    NOTA: Solo se incluyen atributos con valor no vacío (excepto booleanos).
+    """
+    id: int
+    attrs: List[UIAttribute]
 
 
 class UIParser:
@@ -67,6 +86,7 @@ class UIParser:
         """Inicializa el parser con mapeo vacío de elementos."""
         logger.debug("UIPARSER: Inicializando UIParser")
         self.element_map: Dict[int, str] = {}  # ID -> XPath
+        self.element_info_map: Dict[int, UIElement] = {}  # ID -> Información completa del elemento
         self.current_id = 0
         self._parse_stats = {
             "total_nodes_visited": 0,
@@ -76,9 +96,10 @@ class UIParser:
 
     def parse_screen(self, xml_source: str) -> List[UIElement]:
         """
-        Parsea el XML y retorna lista de elementos interactuables con propiedades reales.
+        Parsea el XML y retorna lista de elementos interactuables.
 
-        Criterios de inclusión (focusable="true" es REQUERIDO):
+        Criterios de inclusión:
+        - focusable="true" - REQUERIDO
         - clickable="true" (con info útil: text, content-desc o resource-id)
         - Clase contiene "EditText" (inputs) - siempre incluidos
         - Clase contiene "ImageView" + clickable (botones de imagen) - siempre incluidos
@@ -87,20 +108,28 @@ class UIParser:
             xml_source: String con el XML completo de page_source
 
         Returns:
-            Lista de diccionarios con propiedades del XML en este orden (prioridad para selectores):
-            - resource-id: ID del recurso Android
-            - content-desc: Descripción de accesibilidad
-            - class: Clase del componente Android
-            - index: Índice del elemento en su padre
-            - xpath: XPath generado para localizar el elemento
-            - bounds: Coordenadas del elemento [x1,y1][x2,y2]
-            - clickable: Si es clickeable ("true"/"false")
-            - displayed: Si está visible ("true"/"false")
-            - enabled: Si está habilitado ("true"/"false")
-            - password: Si es campo de contraseña ("true"/"false")
-            - scrollable: Si es scrolleable ("true"/"false")
-            - text: Texto visible del elemento
-            - hint: Placeholder del input (solo para EditText)
+            Lista de UIElement con estructura:
+            {
+                "id": int,  # ID para usar en tool calls (touch_element_by_id, fill_field_by_id)
+                "attrs": [  # Lista de atributos con estructura fija {name, value}
+                    {"name": "content-desc", "value": "Botón login"},
+                    {"name": "class", "value": "android.widget.Button"},
+                    {"name": "xpath", "value": "//..."},
+                    {"name": "clickable", "value": "true"},
+                    ...
+                ]
+            }
+            
+            Atributos posibles (solo se incluyen si tienen valor):
+            - resource-id: ID del recurso Android (para localizar)
+            - content-desc: Descripción de accesibilidad (para localizar)
+            - text: Texto visible del elemento (para localizar)
+            - class: Clase del componente Android (siempre)
+            - xpath: XPath jerárquico del elemento (siempre)
+            - bounds: Coordenadas [x1,y1][x2,y2]
+            - clickable, enabled, displayed: Estados booleanos (siempre)
+            - password, scrollable: Solo si son "true"
+            - hint: Placeholder del input
         """
         logger.debug("=" * 70)
         logger.debug("UIPARSER: Iniciando parseo de pantalla")
@@ -140,29 +169,21 @@ class UIParser:
 
         # Reset para nuevo parseo
         self.element_map = {}
+        self.element_info_map = {}
         self.current_id = 0
         elements = []
 
         # Recorrer árbol recursivamente
-        logger.debug("UIPARSER: Iniciando recorrido del árbol XML...")
+        #logger.debug("UIPARSER: Iniciando recorrido del árbol XML...")
         self._traverse_tree(root, "", elements, None)
         
         # Log estadísticas finales
-        logger.info("UIPARSER: Parseo completado")
-        logger.info(f"  - Nodos visitados: {self._parse_stats['total_nodes_visited']}")
-        logger.info(f"  - Elementos interactuables encontrados: {len(elements)}")
-        logger.info(f"  - Elementos filtrados: {self._parse_stats['filtered_out']}")
-        
-        # Mostrar elementos encontrados
-        if elements:
-            logger.debug("UIPARSER: Elementos encontrados:")
-            for elem in elements:
-                # Mostrar identificador más relevante
-                identifier = elem.get('resource-id') or elem.get('content-desc') or elem.get('text') or 'sin-id'
-                logger.debug(f"  [{elem['class']}] '{identifier}' clickable={elem['clickable']}")
-        else:
-            logger.warning("UIPARSER WARNING: No se encontraron elementos interactuables en la pantalla")
-        
+        #logger.info("UIPARSER: Parseo completado")
+        #logger.info(f"  - Nodos visitados: {self._parse_stats['total_nodes_visited']}")
+        #logger.info(f"  - Elementos interactuables encontrados: {len(elements)}")
+        #logger.info(f"  - Elementos filtrados: {self._parse_stats['filtered_out']}")
+        #logger.info("UIPARSER: Elementos encontrados:", json.dumps(elements, indent=4))
+                
         return elements
 
     def _traverse_tree(
@@ -173,44 +194,37 @@ class UIParser:
 
         Args:
             element: Elemento XML actual
-            parent_path: XPath del elemento padre
+            parent_path: XPath acumulado del elemento padre (para construir xpath jerárquico)
             elements: Lista donde se acumulan los elementos válidos
-            parent_element: Elemento padre (para calcular posición)
+            parent_element: Elemento padre (para calcular posición entre hermanos)
         """
         self._parse_stats["total_nodes_visited"] += 1
         
-        # Generar XPath para este elemento
-        current_path = self._generate_xpath(element, parent_element)
+        # Generar XPath jerárquico para este elemento
+        current_path = self._generate_xpath(element, parent_path, parent_element)
         
         # Log a nivel TRACE (solo si se activa)
         class_name = element.get("class", "unknown")
-        logger.debug(f"UIPARSER TRACE: Visitando nodo {self._parse_stats['total_nodes_visited']}: "
-                    f"{element.tag} class={class_name}")
 
         # Verificar si este elemento debe incluirse
         if self._is_interactable_element(element):
             self._parse_stats["interactable_found"] += 1
-            # Extraer información y agregar a la lista
-            element_info = self._extract_element_info(element, current_path)
+            # Asignar ID antes de crear el elemento
+            element_id = self.current_id
+            # Extraer información y agregar a la lista (pasando el ID asignado)
+            element_info = self._extract_element_info(element, current_path, element_id)
             if element_info:
                 elements.append(element_info)
-                # Guardar mapeo index -> XPath para compatibilidad
-                self.element_map[self.current_id] = current_path
-                logger.debug(f"UIPARSER: ✓ Elemento agregado: "
-                           f"class={element_info['class']} content-desc='{element_info['content-desc']}' "
-                           f"resource-id='{element_info['resource-id']}' -> XPath: {current_path}")
+                # Guardar mapeos ID -> XPath e ID -> Info completa
+                self.element_map[element_id] = current_path
+                self.element_info_map[element_id] = element_info
                 self.current_id += 1
             else:
                 self._parse_stats["filtered_out"] += 1
-                logger.debug(f"UIPARSER: Elemento interactuable sin info útil descartado: {class_name}")
         else:
             self._parse_stats["filtered_out"] += 1
 
         # Continuar recorriendo hijos
-        children_count = len(list(element))
-        if children_count > 0:
-            logger.debug(f"UIPARSER TRACE: Procesando {children_count} hijos de {element.tag}")
-        
         for child in element:
             self._traverse_tree(child, current_path, elements, element)
 
@@ -219,7 +233,7 @@ class UIParser:
         Valida si un elemento debe incluirse en la lista de elementos interactuables.
 
         Reglas de inclusión:
-        - focusable="true" es REQUERIDO para cualquier elemento
+        - focusable="true" - REQUERIDO
         - clickable="true" (con info útil: text, content-desc o resource-id)
         - Clase contiene "EditText" (inputs) - se incluyen siempre
         - Clase contiene "ImageView" (botones de imagen) - se incluyen siempre
@@ -262,108 +276,169 @@ class UIParser:
         return False
 
     def _extract_element_info(
-        self, element: ET.Element, xpath: str
+        self, element: ET.Element, xpath: str, element_id: int
     ) -> Optional[UIElement]:
         """
         Extrae información relevante del elemento para el JSON de salida.
 
-        Extrae propiedades reales del XML tal cual están, para que el agente
-        pueda construir selectores adecuados.
+        Genera una lista de atributos con estructura fija {name, value}.
+        Solo incluye atributos con valor no vacío (excepto booleanos que siempre se incluyen).
 
         Args:
             element: Elemento XML
-            xpath: XPath generado para este elemento
+            xpath: XPath jerárquico generado para este elemento
+            element_id: ID único asignado por UIParser (USAR ESTE EN TOOL CALLS)
 
         Returns:
-            Diccionario con propiedades reales del elemento XML o None si no es válido
+            Diccionario UIElement con id y lista de attrs
         """
-        # Obtener atributos tal cual están en el XML
-        resource_id = element.get("resource-id", "")
-        content_desc = element.get("content-desc", "")
+        attrs: List[UIAttribute] = []
+        
+        # === ATRIBUTOS DE LOCALIZACIÓN (solo si tienen valor) ===
+        # Estos son los que el LLM puede usar para encontrar el elemento
+        
+        resource_id = element.get("resource-id", "").strip()
+        if resource_id:
+            attrs.append({"name": "resource-id", "value": resource_id})
+        
+        content_desc = element.get("content-desc", "").strip()
+        if content_desc:
+            attrs.append({"name": "content-desc", "value": content_desc})
+        
+        text = element.get("text", "").strip()
+        if text:
+            attrs.append({"name": "text", "value": text})
+        
+        # === ATRIBUTOS DE IDENTIFICACIÓN (siempre se incluyen) ===
+        
         class_name = element.get("class", "")
-        index = element.get("index", "")
-        bounds = element.get("bounds", "")
+        attrs.append({"name": "class", "value": class_name})
+        
+        # XPath del elemento (requerido - ya verificado al inicio)
+        attrs.append({"name": "xpath", "value": xpath})
+        
+        # === ATRIBUTOS DE POSICIÓN (solo si tienen valor) ===
+        
+        bounds = element.get("bounds", "").strip()
+        if bounds:
+            attrs.append({"name": "bounds", "value": bounds})
+        
+        # === ATRIBUTOS DE ESTADO (siempre se incluyen los relevantes) ===
+        
         clickable = element.get("clickable", "false")
-        displayed = element.get("displayed", "false")
+        attrs.append({"name": "clickable", "value": clickable})
+        
         enabled = element.get("enabled", "false")
+        attrs.append({"name": "enabled", "value": enabled})
+        
+        displayed = element.get("displayed", "false")
+        attrs.append({"name": "displayed", "value": displayed})
+        
+        # password y scrollable solo si son "true" (son menos comunes)
         password = element.get("password", "false")
+        if password == "true":
+            attrs.append({"name": "password", "value": password})
+        
         scrollable = element.get("scrollable", "false")
-        text = element.get("text", "")
-        hint = element.get("hint", "")
+        if scrollable == "true":
+            attrs.append({"name": "scrollable", "value": scrollable})
+        
+        # hint solo si tiene valor (placeholder para inputs)
+        hint = element.get("hint", "").strip()
+        if hint:
+            attrs.append({"name": "hint", "value": hint})
 
-        # Retornar propiedades usando UIElement TypedDict
-        # La validación de inclusión ya se hizo en _is_interactable_element
+        # Retornar estructura UIElement con id y lista de attrs
         return UIElement(
-            **{
-                "resource-id": resource_id,
-                "content-desc": content_desc,
-                "class": class_name,
-                "index": index,
-                "xpath": xpath,
-                "bounds": bounds,
-                "clickable": clickable,
-                "displayed": displayed,
-                "enabled": enabled,
-                "password": password,
-                "scrollable": scrollable,
-                "text": text,
-                "hint": hint,
-            }
+            id=element_id,
+            attrs=attrs
         )
 
-    def _generate_xpath(self, element: ET.Element, parent_element: Optional[ET.Element] = None) -> str:
+    def _generate_xpath(
+        self, element: ET.Element, parent_path: str, parent_element: Optional[ET.Element] = None
+    ) -> str:
         """
-        Genera un XPath único para el elemento.
+        Genera un XPath corto basado en la estructura del árbol XML.
+        
+        Similar a Appium Inspector: empieza desde el ancestro más cercano
+        que tenga un identificador único, generando xpaths cortos y legibles.
 
         Estrategia:
-        1. Intentar usar resource-id si es único
-        2. Usar texto si es único
-        3. Usar content-desc si es único
-        4. Fallback a posición con índice
+        - Si el elemento tiene identificador (resource-id, content-desc, text):
+          Reinicia el xpath con // (búsqueda global desde ese punto)
+        - Si no tiene identificador:
+          Continúa acumulando desde el padre con / (ruta relativa)
 
         Args:
-            element: Elemento XML
-            parent_element: Elemento padre (para calcular posición entre hermanos)
+            element: Elemento XML actual
+            parent_path: XPath acumulado del padre
+            parent_element: Elemento padre (para calcular índice entre hermanos)
 
         Returns:
-            XPath completo del elemento
+            XPath corto del elemento (similar a Appium Inspector)
         """
         tag = element.tag
-        resource_id = element.get("resource-id", "")
-        text = element.get("text", "")
-        content_desc = element.get("content-desc", "")
-
-        # Construir XPath
-        xpath = None
-
-        # Estrategia 1: Usar resource-id si está disponible (más confiable)
+        
+        # Obtener atributos identificadores
+        resource_id = element.get("resource-id", "").strip()
+        content_desc = element.get("content-desc", "").strip()
+        text = element.get("text", "").strip()
+        
+        # Determinar si este elemento tiene un identificador único
+        has_identifier = bool(resource_id or content_desc or text)
+        
+        # Construir el segmento xpath para este elemento
         if resource_id:
-            # Escapar comillas y caracteres especiales
-            resource_id_escaped = resource_id.replace('"', '\\"')
-            xpath = f'//{tag}[@resource-id="{resource_id_escaped}"]'
-        # Estrategia 2: Usar texto si está disponible
-        elif text:
-            # Escapar comillas en el texto
-            text_escaped = text.replace('"', '\\"').replace("'", "\\'")
-            xpath = f'//{tag}[@text="{text_escaped}"]'
-        # Estrategia 3: Usar content-desc
+            resource_id_escaped = resource_id.replace("'", "\\'")
+            segment = f"{tag}[@resource-id='{resource_id_escaped}']"
         elif content_desc:
-            content_desc_escaped = content_desc.replace('"', '\\"').replace("'", "\\'")
-            xpath = f'//{tag}[@content-desc="{content_desc_escaped}"]'
-        # Estrategia 4: Usar clase con índice (fallback)
+            content_desc_escaped = content_desc.replace("'", "\\'")
+            segment = f"{tag}[@content-desc='{content_desc_escaped}']"
+        elif text:
+            text_escaped = text.replace("'", "\\'")
+            segment = f"{tag}[@text='{text_escaped}']"
         else:
-            # Contar posición entre hermanos del mismo tipo
-            if parent_element is not None:
-                siblings = [e for e in parent_element if e.tag == tag]
-                if len(siblings) > 1:
-                    index = siblings.index(element) + 1
-                    xpath = f"//{tag}[{index}]"
-                else:
-                    xpath = f"//{tag}"
+            # Sin identificador: usar índice entre hermanos del mismo tipo
+            index = self._get_sibling_index(element, parent_element)
+            if index > 1:
+                segment = f"{tag}[{index}]"
             else:
-                xpath = f"//{tag}"
-
-        return xpath
+                segment = tag
+        
+        # Si tiene identificador, reiniciar el xpath (como Appium Inspector)
+        if has_identifier:
+            return f"//{segment}"
+        
+        # Si no tiene identificador, acumular desde el padre
+        if parent_path:
+            return f"{parent_path}/{segment}"
+        else:
+            return f"//{segment}"
+    
+    def _get_sibling_index(self, element: ET.Element, parent_element: Optional[ET.Element]) -> int:
+        """
+        Calcula el índice (1-based) del elemento entre sus hermanos del mismo tipo.
+        
+        Args:
+            element: Elemento actual
+            parent_element: Elemento padre
+            
+        Returns:
+            Índice del elemento (1 si es el primero o único de su tipo)
+        """
+        if parent_element is None:
+            return 1
+        
+        tag = element.tag
+        index = 1
+        
+        for sibling in parent_element:
+            if sibling is element:
+                break
+            if sibling.tag == tag:
+                index += 1
+        
+        return index
 
     def get_element_by_id(self, element_id: int) -> Optional[str]:
         """
@@ -396,11 +471,69 @@ class UIParser:
         
         return xpath
 
+    def get_element_info_by_id(self, element_id: int) -> Optional[UIElement]:
+        """
+        Recupera la información completa de un elemento usando su ID.
+
+        Args:
+            element_id: ID del elemento (asignado durante parse_screen)
+
+        Returns:
+            Diccionario UIElement con toda la info del elemento o None si no existe
+        """
+        logger.debug(f"UIPARSER: Buscando info completa para elemento ID {element_id}")
+        
+        element_info = self.element_info_map.get(element_id)
+        
+        if element_info:
+            class_name = self._get_attr_value(element_info, "class", "unknown")
+            logger.debug(f"UIPARSER: ✓ Info encontrada para ID {element_id}: class={class_name}")
+        else:
+            logger.warning(f"UIPARSER WARNING: ID {element_id} NO encontrado en element_info_map")
+        
+        return element_info
+
+    def is_editable_element(self, element_id: int) -> bool:
+        """
+        Verifica si un elemento es editable (clase contiene 'EditText').
+
+        Args:
+            element_id: ID del elemento
+
+        Returns:
+            True si el elemento es un campo de texto editable, False en caso contrario
+        """
+        element_info = self.element_info_map.get(element_id)
+        if not element_info:
+            return False
+        
+        # Buscar el atributo "class" en la lista de attrs
+        class_name = self._get_attr_value(element_info, "class", "").lower()
+        return "edittext" in class_name
+    
+    def _get_attr_value(self, element: UIElement, attr_name: str, default: str = "") -> str:
+        """
+        Obtiene el valor de un atributo específico de un UIElement.
+        
+        Args:
+            element: UIElement con lista de attrs
+            attr_name: Nombre del atributo a buscar
+            default: Valor por defecto si no se encuentra
+        
+        Returns:
+            Valor del atributo o default si no existe
+        """
+        for attr in element.get("attrs", []):
+            if attr.get("name") == attr_name:
+                return attr.get("value", default)
+        return default
+
     def clear(self):
         """Limpia el mapeo de elementos (útil para resetear estado)."""
         logger.debug("UIPARSER: Limpiando mapeo de elementos")
         previous_count = len(self.element_map)
         self.element_map = {}
+        self.element_info_map = {}
         self.current_id = 0
         logger.debug(f"UIPARSER: Limpiados {previous_count} elementos del mapeo")
     
@@ -484,56 +617,85 @@ class UIParser:
             "total_elements": len(self.element_map),
         }
 
+    def elements_to_json(self, elements: List[UIElement], compact: bool = False) -> str:
+        """
+        Convierte una lista de elementos UI a formato JSON.
+
+        Args:
+            elements: Lista de elementos parseados por parse_screen()
+            compact: Si True, genera JSON sin espacios ni indentación
+
+        Returns:
+            String JSON con los elementos
+        """
+        if not elements:
+            logger.debug("UIPARSER: elements_to_json() - Lista vacía, retornando '[]'")
+            return "[]"
+        
+        logger.debug(f"UIPARSER: Convirtiendo {len(elements)} elementos a JSON")
+        
+        if compact:
+            json_output = json.dumps(elements, ensure_ascii=False, separators=(',', ':'))
+        else:
+            json_output = json.dumps(elements, indent=2, ensure_ascii=False)
+        
+        logger.debug(f"UIPARSER: ✓ Conversión JSON completada ({len(json_output)} caracteres)")
+        
+        return json_output
+
+    def parse_screen_to_json(self, xml_source: str, compact: bool = False) -> str:
+        """
+        Parsea el XML y retorna elementos directamente en formato JSON.
+        
+        Combina parse_screen() y elements_to_json() en una sola operación
+        para conveniencia.
+        
+        Args:
+            xml_source: String con el XML completo de page_source
+            compact: Si True, genera JSON sin espacios ni indentación
+        
+        Returns:
+            String JSON con los elementos interactuables
+        """
+        elements = self.parse_screen(xml_source)
+        logger.debug(f"UIPARSER: Elementos encontrados: {len(elements)}")
+        json_output = self.elements_to_json(elements, compact)
+        return json_output
+    
+    # Métodos TOON deprecados (mantenidos para compatibilidad)
     def elements_to_toon(self, elements: List[UIElement]) -> str:
         """
-        Convierte una lista de elementos UI a formato TOON.
-
-        TOON (Token-Oriented Object Notation) reduce el consumo de tokens
-        en un 30-60% comparado con JSON, ideal para arrays uniformes de objetos.
-
+        DEPRECADO: Convierte elementos a formato TOON.
+        
+        NOTA: Con la nueva estructura de attrs [{name, value}], TOON no es
+        eficiente. Se recomienda usar elements_to_json() en su lugar.
+        
         Args:
             elements: Lista de elementos parseados por parse_screen()
 
         Returns:
             String en formato TOON con los elementos
-
-        Example:
-            JSON (más tokens):
-            [{"resource-id": "btn_login", "content-desc": "Iniciar sesión", "class": "android.widget.Button", ..., "hint": ""}]
-
-            TOON (menos tokens):
-            [1\t]{resource-id\tcontent-desc\tclass\tindex\txpath\tbounds\tclickable\tdisplayed\tenabled\tpassword\tscrollable\ttext\thint}:
-              btn_login\tIniciar sesión\tandroid.widget.Button\t0\t//...\t[0,0][100,50]\ttrue\ttrue\ttrue\tfalse\tfalse\tLogin\t
         """
         if not elements:
             logger.debug("UIPARSER: elements_to_toon() - Lista vacía, retornando string vacío")
             return ""
         
-        logger.debug(f"UIPARSER: Convirtiendo {len(elements)} elementos a formato TOON")
+        logger.warning("UIPARSER: elements_to_toon() está deprecado. "
+                      "Con la nueva estructura de attrs, se recomienda elements_to_json()")
         
-        # Usar tabs como delimitador para mayor eficiencia de tokens
         toon_options = {
-            "delimiter": "\t",
+            "delimiter": "|",
         }
         
         toon_output = toon_encode(elements, toon_options)
-        
-        logger.debug(f"UIPARSER: ✓ Conversión TOON completada ({len(toon_output)} caracteres)")
         
         return toon_output
 
     def parse_screen_to_toon(self, xml_source: str) -> str:
         """
-        Parsea el XML y retorna elementos directamente en formato TOON.
+        DEPRECADO: Parsea XML y retorna en formato TOON.
         
-        Combina parse_screen() y elements_to_toon() en una sola operación
-        para conveniencia.
-        
-        Args:
-            xml_source: String con el XML completo de page_source
-        
-        Returns:
-            String en formato TOON con los elementos interactuables
+        Se recomienda usar parse_screen_to_json() en su lugar.
         """
         elements = self.parse_screen(xml_source)
         return self.elements_to_toon(elements)

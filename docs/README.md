@@ -68,8 +68,8 @@ La inteligencia artificial (GPT-4 o Claude) analiza la pantalla del celular y ej
 
 1. **Si es tu primera vez**: Empieza por el [Glosario](02-glossary.md) para familiarizarte con los términos
 2. **Si quieres instalar**: Ve a [Prerequisitos](05-prerequisites.md) y luego a la guía de tu sistema operativo
-3. **Si ya tienes todo instalado**: Ve directo al [Inicio Rápido](01-quick-start.md)
-4. **Si quieres crear tus propias pruebas**: Lee [Crear Pruebas](06-creating-tests.md)
+3. **Si ya tienes todo instalado**: Ve directo al [Inicio Rápido](01-quick-start.md) y ejecuta `tests/specs/examples/test_example.py` para ver ejemplos funcionales
+4. **Si quieres crear tus propias pruebas**: Lee [Crear Pruebas](06-creating-tests.md) - incluye ejemplos con AITestRunner (recomendado) y UIParser (avanzado)
 
 ## Arquitectura del Sistema
 
@@ -132,7 +132,8 @@ qa_movil_agent/
 │   ├── conftest.py        # Configuración de pytest
 │   ├── unit/              # Tests unitarios (test_*.py)
 │   └── specs/             # Tests E2E (test_*.py y spec_*.py)
-│       └── examples/      # Tests de usuario (spec_*.py)
+│       └── examples/      # Tests de usuario
+│           └── test_example.py  # ✅ Ejemplos funcionales con AITestRunner
 │
 ├── docs/                   # Esta documentación
 ├── reports/                # Reportes generados

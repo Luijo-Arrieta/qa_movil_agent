@@ -12,6 +12,151 @@ Asegúrate de tener:
 
 ---
 
+## Dos Formas de Crear Tests
+
+Este proyecto ofrece **dos formas** de crear pruebas:
+
+### 1. **AITestRunner (Recomendado para empezar)** 🚀
+
+La forma más simple: escribes instrucciones en lenguaje natural y el agente de IA las ejecuta automáticamente. **No necesitas escribir selectores XPath ni analizar la UI manualmente.**
+
+**Ventajas:**
+- ✅ Muy fácil de escribir y leer
+- ✅ No necesitas conocer XPath o estructura de la UI
+- ✅ El agente maneja automáticamente los errores y reintentos
+- ✅ Ideal para flujos completos de usuario
+
+**Ejemplo rápido:**
+```python
+from src.test_runner import AITestRunner
+from src.config import Config
+
+def test_login(self, driver_setup):
+    runner = AITestRunner(driver=driver_setup)
+    test_plan = [
+        "Esperar a ver la pantalla de login",
+        f"Ingresar usuario '{Config.TEST_USER_EMAIL}'",
+        f"Ingresar password '{Config.TEST_USER_PASSWORD}'",
+        "Tocar botón Ingresar",
+        "Verificar que se inició la sesión",
+    ]
+    success = runner.run_test_plan(test_plan)
+    assert success
+```
+
+**Ver ejemplo completo:** `tests/specs/examples/test_example.py` ✅
+
+### 2. **UIParser (Para casos avanzados)** 🔧
+
+Para cuando necesitas control total sobre la interacción con la UI. Tú analizas la pantalla y decides qué hacer.
+
+**Ventajas:**
+- ✅ Control total sobre cada acción
+- ✅ Útil para tests muy específicos o de bajo nivel
+- ✅ Puedes inspeccionar exactamente qué elementos hay en pantalla
+
+**Desventajas:**
+- ❌ Más código y complejidad
+- ❌ Necesitas entender XPath y estructura de la UI
+- ❌ Debes manejar errores y esperas manualmente
+
+---
+
+## Método 1: Usando AITestRunner (Recomendado)
+
+### Ejemplo Completo: Test de Login
+
+Crea el archivo `tests/specs/spec_login_ai.py`:
+
+```python
+"""
+Tests de login usando AITestRunner (método recomendado).
+"""
+
+import pytest
+from src.test_runner import AITestRunner
+from src.config import Config
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("driver_setup")
+class TestLoginAI:
+    """Tests de login usando el agente de IA."""
+
+    def test_login_exitoso(self, driver_setup):
+        """
+        Verifica que el usuario pueda hacer login exitosamente.
+        
+        Este test usa AITestRunner que ejecuta las acciones
+        automáticamente basándose en instrucciones en lenguaje natural.
+        """
+        # Definir objetivo general del test
+        objective = "Realizar login en la aplicación con credenciales de prueba"
+        
+        # Obtener credenciales desde variables de entorno
+        test_email = Config.TEST_USER_EMAIL
+        test_password = Config.TEST_USER_PASSWORD
+        
+        # Crear el runner con el driver y objetivo
+        runner = AITestRunner(driver=driver_setup, objective=objective)
+        
+        # Definir el plan de prueba en lenguaje natural
+        test_plan = [
+            "Esperar a ver la pantalla de login",
+            f"Ingresar usuario '{test_email}'",
+            f"Ingresar password '{test_password}'",
+            "Tocar botón Ingresar",
+            "Verificar que se inició la sesión correctamente",
+        ]
+        
+        # Ejecutar el plan
+        success = runner.run_test_plan(test_plan)
+        
+        # Verificar que todos los pasos se completaron
+        assert success, "El plan de prueba no se completó exitosamente"
+
+    def test_navegacion_menu(self, driver_setup):
+        """Ejemplo de navegación simple usando el agente."""
+        runner = AITestRunner(driver=driver_setup)
+        
+        test_plan = [
+            "Abrir el menú principal",
+            "Seleccionar la opción 'Configuración'",
+            "Verificar que se abra la pantalla de configuración",
+        ]
+        
+        success = runner.run_test_plan(test_plan)
+        assert success, "La navegación no se completó exitosamente"
+```
+
+### Ejecutar el Test
+
+```bash
+# Ejecutar solo este test
+poetry run pytest tests/specs/spec_login_ai.py::TestLoginAI::test_login_exitoso -v
+
+# Ejecutar todos los tests de la clase
+poetry run pytest tests/specs/spec_login_ai.py -v
+```
+
+### Ver Ejemplo Funcional Completo
+
+El archivo `tests/specs/examples/test_example.py` contiene ejemplos funcionales completos que puedes usar como referencia:
+
+```bash
+# Ver el archivo de ejemplo
+cat tests/specs/examples/test_example.py
+
+# Ejecutar los ejemplos
+poetry run pytest tests/specs/examples/test_example.py -v
+```
+
+---
+
+## Método 2: Usando UIParser (Avanzado)
+
+Si necesitas más control sobre la interacción con la UI, puedes usar `UIParser` directamente.
+
 ## Estructura de un Test
 
 Cada prueba en este proyecto tiene una estructura básica:
@@ -549,15 +694,30 @@ poetry run python scripts/generate_report.py
 
 ---
 
+## ¿Cuál Método Usar?
+
+### Usa AITestRunner cuando:
+- ✅ Quieres escribir tests rápidamente
+- ✅ Necesitas flujos completos de usuario
+- ✅ No quieres preocuparte por selectores XPath
+- ✅ Prefieres instrucciones en lenguaje natural
+
+### Usa UIParser cuando:
+- ✅ Necesitas control total sobre cada acción
+- ✅ Quieres inspeccionar exactamente qué hay en pantalla
+- ✅ Necesitas hacer verificaciones muy específicas
+- ✅ Estás depurando problemas de UI
+
 ## Siguiente Paso
 
 Ahora que sabes crear pruebas:
 
-1. Crea tests para otras funcionalidades de tu app
+1. **Empieza con AITestRunner**: Revisa `tests/specs/examples/test_example.py` para ver ejemplos funcionales completos
+2. Crea tests para otras funcionalidades de tu app
    - Usa `spec_*.py` para tests de usuario (funcionalidades de la app)
    - Usa `test_*.py` para tests del framework/proyecto
-2. Explora el código de `tests/unit/test_ui_parser.py` para ver más ejemplos
-3. Lee el [Glosario](02-glossary.md) si encuentras términos que no entiendes
+3. Explora el código de `tests/unit/test_ui_parser.py` para ver más ejemplos avanzados
+4. Lee el [Glosario](02-glossary.md) si encuentras términos que no entiendes
 
 **Nota sobre nombres de archivos:**
 - Pytest reconoce automáticamente tanto `test_*.py` como `spec_*.py`

@@ -2,8 +2,8 @@
 AI Orchestrator - Orquesta las decisiones de IA para ejecutar acciones en la app móvil.
 Soporta OpenAI y Anthropic.
 
-Utiliza formato TOON (Token-Oriented Object Notation) para reducir el consumo
-de tokens al enviar información de UI a los modelos de IA.
+Los elementos de UI se envían al LLM en formato TOON (Token-Oriented Object Notation)
+para reducir el consumo de tokens en un 30-60%.
 https://github.com/toon-format/toon
 """
 
@@ -21,6 +21,57 @@ from src.config import Config
 
 # Configurar logging para este módulo
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# SYSTEM PROMPT - Compartido entre OpenAI y Anthropic
+# =============================================================================
+SYSTEM_PROMPT = """Eres un Agente de QA Móvil autónomo. Tu objetivo es ejecutar pruebas en aplicaciones móviles Android.
+
+FORMATO DE ELEMENTOS (TOON):
+Los elementos se muestran en formato tabular TOON. Cada fila es un elemento con sus atributos.
+- "id": número único (USAR ESTE en las herramientas)
+- Los demás campos son atributos del elemento Android
+
+Ejemplo TOON:
+[2]{id	content-desc	class	xpath	clickable}:
+  0	Botón login	android.widget.Button	//android.widget.Button[@content-desc="Botón login"]	true
+  1	Campo email	android.widget.EditText	//android.widget.EditText[@content-desc="Campo email"]	true
+
+ATRIBUTOS IMPORTANTES PARA IDENTIFICAR ELEMENTOS:
+- "content-desc": Texto de accesibilidad (lo que describe el elemento)
+- "text": Texto visible en el elemento
+- "resource-id": ID del recurso Android
+- "class": Tipo de elemento (Button, EditText, View, etc.)
+- "hint": Placeholder en campos de texto
+
+IMPORTANTE - USO DE IDs:
+- USA el campo "id" del elemento en las herramientas
+- Ejemplo: touch_element_by_id(element_id=0), fill_field_by_id(element_id=1, value="texto")
+- NO confundas "id" con el atributo "resource-id" (son diferentes)
+
+INSTRUCCIONES:
+1. Busca el elemento correcto por sus atributos (content-desc, text, class)
+2. Usa el "id" de ese elemento en la herramienta correspondiente
+3. Ejecuta SOLO UNA acción por turno
+4. Para campos de texto (class contiene "EditText"), usa fill_field_by_id
+5. Para hacer click, usa touch_element_by_id
+6. Si no encuentras un elemento, usa scroll
+7. Para verificaciones usa assert_screen_contains
+
+CUÁNDO ESTÁ COMPLETO UN PASO:
+- Revisa el "Historial de acciones recientes" antes de decidir
+- Si ya ejecutaste la acción que pide el paso actual → NO hagas más, responde sin tool_call
+- Pasos de "Esperar/Verificar": si assert_screen_contains ya fue exitoso → paso completo
+- Pasos de "Ingresar/Escribir": si fill_field_by_id ya fue ejecutado → paso completo
+- Pasos de "Tocar/Click": si touch_element_by_id ya fue ejecutado → paso completo
+
+GESTIÓN MULTI-APP:
+- activate_app(app_package): Abre/activa una app
+- switch_to_app_keep_background(app_package): Cambia manteniendo la actual en background
+- switch_to_app(app_package): Cambia cerrando la app anterior
+- terminate_app(app_package): Cierra completamente una app
+
+IMPORTANTE: Ejecuta SOLO la acción del paso ACTUAL. NO te adelantes a pasos futuros."""
 
 
 class AIOrchestrator:
@@ -102,8 +153,8 @@ class AIOrchestrator:
         logger.info(f"AI_ORCHESTRATOR: Llamada #{call_number}")
         
         # Log inputs
-        logger.debug(f"AI_ORCHESTRATOR: Paso actual: '{current_step}'")
         logger.debug(f"AI_ORCHESTRATOR: Objetivo: '{objective or 'No definido'}'")
+        logger.debug(f"AI_ORCHESTRATOR: Paso actual: '{current_step}'")
         logger.debug(f"AI_ORCHESTRATOR: Elementos UI disponibles: {len(ui_elements)}")
         logger.debug(f"AI_ORCHESTRATOR: Historial de acciones: {len(action_history)} acciones")
         
@@ -168,9 +219,12 @@ class AIOrchestrator:
         
         TOON (Token-Oriented Object Notation) reduce el consumo de tokens
         en un 30-60% comparado con JSON para arrays uniformes de objetos.
+        
+        Los elementos se mantienen en su estructura anidada {id, attrs: [{name, value}]}
+        y se convierten directamente a TOON sin modificar su estructura.
 
         Args:
-            ui_elements: Lista de elementos disponibles
+            ui_elements: Lista de elementos disponibles (UIElement con estructura {id, attrs})
             current_step: Paso actual
             action_history: Historial de acciones
             objective: Objetivo general
@@ -194,18 +248,14 @@ class AIOrchestrator:
                 context_parts.append(f"  {i}. {action}")
             context_parts.append("")
 
-        # Elementos disponibles en la pantalla (formato TOON para eficiencia de tokens)
+        # Elementos disponibles en la pantalla (formato TOON)
         context_parts.append("Elementos disponibles en la pantalla (formato TOON):")
         if not ui_elements:
             context_parts.append("  (No hay elementos interactuables visibles)")
         else:
-            # Convertir elementos a formato TOON para reducir tokens
-            # TOON usa formato tabular: [N]{field1,field2,...}: seguido de filas
-            # Ejemplo: [3]{id,role,label,checked}:
-            #            0,button,Login,null
-            #            1,input,Email,null
+            # Convertir a TOON manteniendo la estructura anidada {id, attrs: [{name, value}]}
             toon_options = {
-                "delimiter": "\t",  # Tabs para mayor eficiencia
+                "delimiter": "|",
             }
             toon_elements = toon_encode(ui_elements, toon_options)
             context_parts.append(toon_elements)
@@ -392,41 +442,14 @@ class AIOrchestrator:
             Respuesta de la IA
         """
         logger.debug("AI_ORCHESTRATOR [OpenAI]: Preparando llamada a API...")
-        
-        system_prompt = """Eres un Agente de QA Móvil autónomo. Tu objetivo es ejecutar pruebas en aplicaciones móviles Android.
-
-Los elementos de la pantalla se muestran en formato TOON (Token-Oriented Object Notation), un formato compacto.
-Ejemplo TOON:
-[2\t]{id\trole\tlabel\tchecked}:
-  0\tbutton\tLogin\tnull
-  1\tinput\tEmail\tnull
-
-Esto significa: 2 elementos, con campos id, role, label, checked separados por tabs.
-
-Instrucciones:
-1. Analiza los elementos disponibles en la pantalla (formato TOON)
-2. Si ves popups o diálogos, ciérralos primero antes de continuar
-3. Selecciona el elemento correcto del listado usando su ID (campo "id" en TOON)
-4. Usa las herramientas proporcionadas para interactuar con la app
-5. Si no encuentras un elemento, intenta hacer scroll
-6. Para validaciones, usa assert_screen_contains
-
-GESTIÓN MULTI-APP:
-Cuando necesites trabajar con múltiples apps (ej: flujo Customer ↔ Técnico):
-- activate_app(app_package): Abre/activa una app
-- switch_to_app_keep_background(app_package): Cambia a otra app manteniendo la actual en background (ideal para ida y vuelta)
-- switch_to_app(app_package): Cambia cerrando la app anterior (estado limpio)
-- terminate_app(app_package): Cierra completamente una app
-
-Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el paso actual."""
 
         messages = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": context},
         ]
         
         logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Modelo: {self.model}")
-        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del system prompt: {len(system_prompt)} chars")
+        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del system prompt: {len(SYSTEM_PROMPT)} chars")
         logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del contexto: {len(context)} chars")
 
         try:
@@ -437,6 +460,7 @@ Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el pas
                 tools=tools,
                 tool_choice="auto",
                 temperature=0.3,  # Baja temperatura para decisiones más determinísticas
+                store=True,  # Habilita almacenamiento en OpenAI Platform (logs/traces)
             )
             logger.debug("AI_ORCHESTRATOR [OpenAI]: ✓ Response recibido")
             
@@ -511,33 +535,6 @@ Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el pas
             Respuesta de la IA
         """
         logger.debug("AI_ORCHESTRATOR [Anthropic]: Preparando llamada a API...")
-        
-        system_prompt = """Eres un Agente de QA Móvil autónomo. Tu objetivo es ejecutar pruebas en aplicaciones móviles Android.
-
-Los elementos de la pantalla se muestran en formato TOON (Token-Oriented Object Notation), un formato compacto.
-Ejemplo TOON:
-[2\t]{id\trole\tlabel\tchecked}:
-  0\tbutton\tLogin\tnull
-  1\tinput\tEmail\tnull
-
-Esto significa: 2 elementos, con campos id, role, label, checked separados por tabs.
-
-Instrucciones:
-1. Analiza los elementos disponibles en la pantalla (formato TOON)
-2. Si ves popups o diálogos, ciérralos primero antes de continuar
-3. Selecciona el elemento correcto del listado usando su ID (campo "id" en TOON)
-4. Usa las herramientas proporcionadas para interactuar con la app
-5. Si no encuentras un elemento, intenta hacer scroll
-6. Para validaciones, usa assert_screen_contains
-
-GESTIÓN MULTI-APP:
-Cuando necesites trabajar con múltiples apps (ej: flujo Customer ↔ Técnico):
-- activate_app(app_package): Abre/activa una app
-- switch_to_app_keep_background(app_package): Cambia a otra app manteniendo la actual en background (ideal para ida y vuelta)
-- switch_to_app(app_package): Cambia cerrando la app anterior (estado limpio)
-- terminate_app(app_package): Cierra completamente una app
-
-Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el paso actual."""
 
         # Convertir herramientas al formato de Anthropic
         logger.debug("AI_ORCHESTRATOR [Anthropic]: Convirtiendo herramientas al formato Anthropic...")
@@ -551,7 +548,7 @@ Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el pas
         logger.debug(f"AI_ORCHESTRATOR [Anthropic]: {len(anthropic_tools)} herramientas configuradas")
         
         logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Modelo: {self.model}")
-        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del system prompt: {len(system_prompt)} chars")
+        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del system prompt: {len(SYSTEM_PROMPT)} chars")
         logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del contexto: {len(context)} chars")
 
         try:
@@ -559,7 +556,7 @@ Sé preciso y eficiente. Solo ejecuta la acción necesaria para completar el pas
             message = self.client.messages.create(
                 model=self.model,
                 max_tokens=1024,
-                system=system_prompt,
+                system=SYSTEM_PROMPT,
                 messages=[
                     {"role": "user", "content": context},
                 ],

@@ -585,3 +585,207 @@ class TestUIParserIntegration:
         # Assert final
         assert len(elements) > 0, "Debe haber al menos un elemento parseado"
         assert len(toon_output) > 0, "El TOON no debe estar vacío"
+
+    @pytest.mark.usefixtures("driver_setup")
+    def test_fill_field_without_ai(self, driver_setup):
+        """
+        Test de integración directa de fill_field_by_id SIN usar el AI orchestrator.
+        
+        Este test prueba las herramientas directamente con decisiones preestablecidas:
+        1. Abrir la app
+        2. Obtener UI con UIParser
+        3. Usar fill_field_by_id para llenar email (ID 1)
+        4. Obtener UI nuevamente
+        5. Usar fill_field_by_id para llenar password (ID 4)
+        6. Obtener UI nuevamente
+        7. Hacer click en botón login (ID 6)
+        
+        Ejecutar solo este test:
+        poetry run pytest tests/specs/unit_test_ui_parser_integration.py::TestUIParserIntegration::test_fill_field_without_ai -v -s
+        """
+        from src.agent_tools import AppiumSkills
+        from src.ui_parser import UIParser
+        
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("🧪 TEST DIRECTO DE fill_field_by_id (SIN AI)")
+        logger.info("=" * 80)
+        logger.info("")
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # SETUP: Esperar a que la app cargue
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("📱 Esperando a que la app cargue completamente...")
+        logger.info("   Esperando 12 segundos para que la app inicie...")
+        time.sleep(12)
+        
+        # Capturar screenshot inicial
+        allure_attach_screenshot(driver_setup, "01_test_fill_field_inicial")
+        
+        # Crear instancias de UIParser y AppiumSkills
+        logger.info("🔧 Creando instancias de UIParser y AppiumSkills...")
+        ui_parser = UIParser()
+        agent_tools = AppiumSkills(driver_setup, ui_parser)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # PASO 1: Obtener UI y mostrar elementos disponibles
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  PASO 1: OBTENER UI INICIAL")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        xml_source = driver_setup.page_source
+        elements = ui_parser.parse_screen(xml_source)
+        
+        logger.info(f"✓ Se encontraron {len(elements)} elementos")
+        logger.info("")
+        logger.info("📋 ELEMENTOS DISPONIBLES:")
+        logger.info("─" * 80)
+        logger.info(json.dumps(elements, indent=2, ensure_ascii=False))
+        logger.info("─" * 80)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # PASO 2: Llenar campo de email (ID 1)
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  PASO 2: LLENAR CAMPO EMAIL (ID 1)")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        email_value = "cliente@demo.com"
+        logger.info(f"📝 Ejecutando: fill_field_by_id(element_id=1, value='{email_value}')")
+        
+        result_email = agent_tools.fill_field_by_id(element_id=1, value=email_value)
+        
+        logger.info(f"📌 Resultado: {result_email}")
+        allure_attach_screenshot(driver_setup, "02_despues_email")
+        
+        # Verificar resultado
+        if "Success" in result_email:
+            logger.info("✅ Email ingresado correctamente")
+        else:
+            logger.error(f"❌ Error al ingresar email: {result_email}")
+        
+        # Pequeña pausa
+        time.sleep(1)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # PASO 3: Obtener UI nuevamente después de email
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  PASO 3: OBTENER UI DESPUÉS DE EMAIL")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        xml_source = driver_setup.page_source
+        ui_parser.clear()  # Limpiar mapeo anterior
+        elements = ui_parser.parse_screen(xml_source)
+        
+        logger.info(f"✓ Se encontraron {len(elements)} elementos")
+        logger.info("")
+        logger.info("📋 ELEMENTOS DISPONIBLES (después de email):")
+        logger.info("─" * 80)
+        logger.info(json.dumps(elements, indent=2, ensure_ascii=False))
+        logger.info("─" * 80)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # PASO 4: Llenar campo de password (ID 4)
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  PASO 4: LLENAR CAMPO PASSWORD (ID 4)")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        password_value = "miPasswordDemo"
+        logger.info(f"📝 Ejecutando: fill_field_by_id(element_id=4, value='{password_value}')")
+        
+        result_password = agent_tools.fill_field_by_id(element_id=4, value=password_value)
+        
+        logger.info(f"📌 Resultado: {result_password}")
+        allure_attach_screenshot(driver_setup, "03_despues_password")
+        
+        # Verificar resultado
+        if "Success" in result_password:
+            logger.info("✅ Password ingresado correctamente")
+        else:
+            logger.error(f"❌ Error al ingresar password: {result_password}")
+        
+        # Pequeña pausa
+        time.sleep(1)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # PASO 5: Obtener UI nuevamente después de password
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  PASO 5: OBTENER UI DESPUÉS DE PASSWORD")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        xml_source = driver_setup.page_source
+        ui_parser.clear()  # Limpiar mapeo anterior
+        elements = ui_parser.parse_screen(xml_source)
+        
+        logger.info(f"✓ Se encontraron {len(elements)} elementos")
+        logger.info("")
+        logger.info("📋 ELEMENTOS DISPONIBLES (después de password):")
+        logger.info("─" * 80)
+        logger.info(json.dumps(elements, indent=2, ensure_ascii=False))
+        logger.info("─" * 80)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # PASO 6: Hacer click en botón login (ID 6)
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  PASO 6: CLICK EN BOTÓN LOGIN (ID 6)")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        logger.info("🖱️ Ejecutando: touch_element_by_id(element_id=6)")
+        
+        result_click = agent_tools.touch_element_by_id(element_id=6)
+        
+        logger.info(f"📌 Resultado: {result_click}")
+        
+        # Pequeña pausa para ver el resultado
+        time.sleep(2)
+        allure_attach_screenshot(driver_setup, "04_despues_click_login")
+        
+        # Verificar resultado
+        if "Success" in result_click:
+            logger.info("✅ Click en botón login realizado correctamente")
+        else:
+            logger.error(f"❌ Error al hacer click: {result_click}")
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # RESUMEN FINAL
+        # ═══════════════════════════════════════════════════════════════════
+        logger.info("")
+        logger.info("╔" + "═" * 78 + "╗")
+        logger.info("║  RESUMEN FINAL")
+        logger.info("╚" + "═" * 78 + "╝")
+        logger.info("")
+        
+        logger.info("📊 RESULTADOS:")
+        logger.info(f"   1. fill_field_by_id(1, email):    {'✅ OK' if 'Success' in result_email else '❌ FAIL'}")
+        logger.info(f"   2. fill_field_by_id(4, password): {'✅ OK' if 'Success' in result_password else '❌ FAIL'}")
+        logger.info(f"   3. touch_element_by_id(6):        {'✅ OK' if 'Success' in result_click else '❌ FAIL'}")
+        logger.info("")
+        
+        # Capturar evidencia final
+        allure_attach_debug_snapshot(driver_setup, "05_test_fill_field_final")
+        
+        # Asserts finales
+        assert "Success" in result_email, f"fill_field_by_id para email falló: {result_email}"
+        assert "Success" in result_password, f"fill_field_by_id para password falló: {result_password}"
+        assert "Success" in result_click, f"touch_element_by_id para login falló: {result_click}"
+        
+        logger.info("✅ Test completado exitosamente")
+        logger.info("")
+        logger.info("=" * 80)

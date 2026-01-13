@@ -31,11 +31,71 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 5. Agent Tools executes action via Appium using the XPath
 
 **Key Components:**
-- `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs.
+- `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs. Generates hierarchical XPaths similar to Appium Inspector (short, readable paths).
 - `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert)
 - `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic) with function calling. Uses TOON format for token efficiency.
-- `src/test_runner.py` - Orchestrates test execution with retry system (max 3 attempts per step)
+- `src/test_runner.py` - Orchestrates test execution with intelligent retry system (max 3 attempts per step)
 - `src/config.py` - Environment configuration. Loads `.env` then `.env.local` (override)
+
+## Error Handling and Retry System
+
+The test runner implements an intelligent error handling system that distinguishes between recoverable and non-recoverable errors.
+
+### Recoverable Errors (Will Retry)
+
+These errors are temporary and may resolve on retry:
+- `TimeoutException` - Temporary timeouts
+- `NoSuchElementException` - Element not found (may appear later)
+- `ElementNotInteractableException` - Element not interactable (state may change)
+- `StaleElementReferenceException` - Stale element reference (can be resolved)
+- `WebDriverException` - Some temporary driver errors (except session errors)
+
+**Behavior:** The system will retry up to `max_retries` (default: 3) times with a 2-second delay between attempts.
+
+### Non-Recoverable Errors (Fail Immediately)
+
+These errors indicate programming/configuration issues and won't be fixed by retrying:
+- `ValueError` - Invalid data or structure
+- `KeyError` - Missing dictionary key
+- `TypeError` - Incorrect types
+- `AttributeError` - Missing attribute
+- `SyntaxError` - Syntax errors
+- `NameError` - Undefined name
+- `ImportError` - Import errors
+- `WebDriverException` with session errors (e.g., "session not created", "invalid session id")
+
+**Behavior:** The test fails immediately without retries, providing clear error messages indicating the issue needs to be fixed in code/configuration.
+
+### Implementation
+
+The `_is_recoverable_error()` function in `src/test_runner.py` classifies errors automatically. When a non-recoverable error occurs, the test runner:
+1. Logs the error with full traceback
+2. Indicates it's a non-recoverable error
+3. Fails immediately without wasting time on retries
+4. Provides guidance to check configuration, data structure, or code
+
+### Repeated Action Detection (Loop Prevention)
+
+The test runner detects when the AI is stuck in a loop attempting the same action repeatedly without progress.
+
+**Behavior:**
+- If the AI attempts the **same action** (same tool + same arguments) **3 times consecutively**, the step fails immediately
+- This prevents infinite loops where an action executes but doesn't produce the expected effect
+
+**Example scenario:**
+- AI tries `fill_field_by_id(element_id=5, value="password123")` → Action executes, but field doesn't accept text
+- AI tries the same action again (attempt 2/3) → Still no progress
+- AI tries the same action again (attempt 3/3) → **Step fails with detailed error message**
+
+**Possible causes when this happens:**
+- Element is visible but not interactable (disabled, covered by overlay)
+- Field has validation rejecting the input
+- A popup/dialog is blocking the interaction
+- Wrong element identified (different XPath needed)
+
+**Configuration:**
+- `max_repeated_action_attempts = 3` (hardcoded in `_execute_step()`)
+- `max_actions_per_step = 10` (total different actions allowed per step)
 
 ## Commands
 
@@ -81,6 +141,7 @@ tests/
     ├── conftest.py          # E2E fixtures (driver_setup, Allure)
     ├── test_ui_parser_integration.py  # Project integration tests
     └── examples/            # User test examples
+        ├── test_example.py  # ✅ Functional examples using AITestRunner
         └── spec_example.py  # User specs (use spec_*.py prefix)
 ```
 
@@ -91,10 +152,88 @@ tests/
 ## Environment Setup
 
 Copy `.env.example` to `.env.local` and configure:
+
+**Required:**
 - `AI_PROVIDER`: "openai" or "anthropic"
 - `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`
 - `ANDROID_APP_PATH`: Path to APK (recommended) OR `ANDROID_APP_PACKAGE` + `ANDROID_APP_ACTIVITY`
 - `ANDROID_DEVICE_NAME`: Device/emulator ID (check with `adb devices`)
+
+**Optional (for test examples):**
+- `TEST_USER_EMAIL`: Test user email for login tests (default: "cliente@demo.com")
+- `TEST_USER_PASSWORD`: Test user password for login tests (default: "123456")
+
+### Using Test Credentials in Tests
+
+Test credentials can be accessed via `Config` class:
+
+```python
+from src.config import Config
+
+# Get credentials from environment variables
+test_email = Config.TEST_USER_EMAIL
+test_password = Config.TEST_USER_PASSWORD
+
+# Use in test plan
+test_plan = [
+    f"Ingresar usuario '{test_email}'",
+    f"Ingresar password '{test_password}'",
+]
+```
+
+This allows you to change credentials without modifying test code - just update `.env.local`.
+
+## Working Examples
+
+A fully functional example file is available at `tests/specs/examples/test_example.py` demonstrating:
+
+### Example 1: Login Flow with AITestRunner
+
+```python
+from src.test_runner import AITestRunner
+from src.config import Config
+
+def test_login_flow_example(self, driver_setup):
+    objective = "Realizar login en la aplicación con credenciales de prueba"
+    
+    test_email = Config.TEST_USER_EMAIL
+    test_password = Config.TEST_USER_PASSWORD
+    
+    runner = AITestRunner(driver=driver_setup, objective=objective)
+    
+    test_plan = [
+        "Esperar a ver la pantalla de login",
+        f"Ingresar usuario '{test_email}'",
+        f"Ingresar password '{test_password}'",
+        "Tocar botón Ingresar",
+        "Verifica que se inició la sesión",
+    ]
+    
+    success = runner.run_test_plan(test_plan)
+    assert success, "El plan de prueba no se completó exitosamente"
+```
+
+### Example 2: Simple Navigation
+
+```python
+def test_simple_navigation_example(self, driver_setup):
+    runner = AITestRunner(driver=driver_setup)
+    
+    test_plan = [
+        "Abrir el menú principal",
+        "Seleccionar la opción 'Configuración'",
+        "Verificar que se abra la pantalla de configuración",
+    ]
+    
+    success = runner.run_test_plan(test_plan)
+    assert success, "La navegación no se completó exitosamente"
+```
+
+**Key Benefits of AITestRunner:**
+- No need to manually parse UI or write XPath selectors
+- Natural language test plans are easy to read and maintain
+- Automatic retry logic handles transient errors
+- Built-in loop detection prevents infinite retries
 
 ## Pre-requisites for Integration Tests
 
@@ -117,40 +256,73 @@ adb devices
 
 ## UIParser Output Format
 
-### JSON Format (internal)
-Elements returned by UIParser contain real Android XML properties in this order:
+### Internal Structure (JSON)
+UIParser returns elements with a consistent structure using `{id, attrs}`:
+
 ```json
 {
-  "resource-id": "com.example:id/button",
-  "content-desc": "Submit button",
-  "class": "android.widget.Button",
-  "index": "0",
-  "xpath": "//android.widget.Button[@index='0']",
-  "bounds": "[0,100][720,200]",
-  "clickable": "true",
-  "displayed": "true",
-  "enabled": "true",
-  "password": "false",
-  "scrollable": "false",
-  "text": "Submit",
-  "hint": ""
+  "id": 0,
+  "attrs": [
+    {"name": "content-desc", "value": "Submit button"},
+    {"name": "class", "value": "android.widget.Button"},
+    {"name": "xpath", "value": "//android.widget.Button[@content-desc=\"Submit button\"]"},
+    {"name": "bounds", "value": "[0,100][720,200]"},
+    {"name": "clickable", "value": "true"},
+    {"name": "enabled", "value": "true"},
+    {"name": "displayed", "value": "true"}
+  ]
 }
 ```
+
+**Why this structure?**
+- `attrs` is always a list of `{name, value}` objects (consistent schema)
+- Only non-empty attributes are included (except booleans)
+- Easy to extend without breaking structure
 
 **Inclusion Criteria (focusable="true" is REQUIRED):**
 - `clickable="true"` with useful info (text, content-desc, or resource-id)
 - `EditText` elements (inputs) - always included
 - `ImageView` + clickable (image buttons) - always included
 
+### XPath Generation (Hierarchical)
+
+UIParser generates **short, hierarchical XPaths** similar to Appium Inspector:
+
+**Strategy:**
+- When an element has a unique identifier (resource-id, content-desc, or text), the XPath "restarts" with `//` from that point
+- Elements without identifiers continue accumulating the path from their parent with `/`
+- This generates concise XPaths that match Appium Inspector's output
+
+**Example:**
+```
+//android.view.View[@content-desc='Iniciar sesión']/android.view.View[2]/android.widget.EditText
+```
+
+Instead of long paths from root:
+```
+//hierarchy/android.widget.FrameLayout/.../android.view.View[@content-desc='Iniciar sesión']/android.view.View[2]/android.widget.EditText
+```
+
+**XPath segment priority:**
+1. `resource-id` (most reliable): `tag[@resource-id='value']`
+2. `content-desc`: `tag[@content-desc='value']`
+3. `text`: `tag[@text='value']`
+4. Index (fallback): `tag[index]` (position among siblings of same type)
+
 ### TOON Format (for LLMs)
-For communication with LLMs, UIParser can output in **TOON (Token-Oriented Object Notation)** format, which reduces token consumption by 30-60% compared to JSON.
+For communication with LLMs, elements are flattened and converted to **TOON (Token-Oriented Object Notation)** format, reducing token consumption by 30-60%.
 
 ```toon
-[3	]{resource-id	content-desc	class	index	xpath	bounds	clickable	displayed	enabled	password	scrollable	text	hint}:
-  com.example:id/login		android.widget.Button	0	//android.widget.Button[@index='0']	[0,100][720,200]	true	true	true	false	false	Login
-  com.example:id/email		android.widget.EditText	1	//android.widget.EditText[@index='1']	[0,200][720,300]	true	true	true	false	false		Enter email
-  com.example:id/password		android.widget.EditText	2	//android.widget.EditText[@index='2']	[0,300][720,400]	true	true	true	true	false		Enter password
+[3]{id	content-desc	class	xpath	clickable	enabled}:
+  0	Login	android.widget.Button	//android.widget.Button[@content-desc="Login"]	true	true
+  1		android.widget.EditText	//android.view.View[@content-desc="Login"]/android.widget.EditText[1]	true	true
+  2		android.widget.EditText	//android.view.View[@content-desc="Login"]/android.widget.EditText[2]	true	true
 ```
+
+**Data Flow:**
+1. UIParser generates `{id, attrs: [{name, value}]}` internally with hierarchical XPaths
+2. AI Orchestrator flattens to `{id, content-desc, class, ...}` for TOON
+3. LLM receives TOON format with attributes as columns
 
 **Why TOON?**
 - Uses tabular format with headers, reducing repetition
@@ -158,17 +330,13 @@ For communication with LLMs, UIParser can output in **TOON (Token-Oriented Objec
 - Maintains full data fidelity (lossless)
 - See: https://github.com/toon-format/toon
 
-**Methods:**
-- `parser.elements_to_toon(elements)` - Convert element list to TOON
-- `parser.parse_screen_to_toon(xml)` - Parse XML directly to TOON
-
 ## AI Tools Available
 
 The LLM can use these tools via function calling:
 
 ### UI Interaction Tools
-- `touch_element_by_xpath(xpath)` - Click element
-- `fill_field_by_xpath(xpath, value)` - Type text in input
+- `touch_element_by_id(element_id)` - Click element by ID
+- `fill_field_by_id(element_id, value)` - Type text in input by ID
 - `scroll(direction)` - Scroll up/down
 - `go_back()` - Press back button
 - `assert_screen_contains(text)` - Verify text presence
@@ -192,12 +360,18 @@ For tests requiring multiple apps (e.g., Customer ↔ Technical flows):
 ### Multi-App Test Example
 
 ```python
+from src.config import Config
+
+# Get credentials from environment variables
+test_email = Config.TEST_USER_EMAIL
+test_password = Config.TEST_USER_PASSWORD
+
 test_plan = [
     "Abrir app Customer (com.example.customer)",
-    "Hacer login con email 'user@test.com' y password '123456'",
+    f"Hacer login con email '{test_email}' y password '{test_password}'",
     "Crear una solicitud de servicio",
     "Cambiar a app Technical (com.example.technical) manteniendo Customer en background",
-    "Hacer login como técnico",
+    f"Hacer login como técnico con email 'tecnico@demo.com' y password '{test_password}'",
     "Aceptar la solicitud",
     "Volver a app Customer",
     "Verificar que la solicitud fue aceptada",

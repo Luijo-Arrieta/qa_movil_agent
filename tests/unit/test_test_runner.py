@@ -668,3 +668,168 @@ class TestToolCallWithError:
         result = runner._execute_single_tool_call(tool_call, "test step")
 
         assert result is False
+
+
+class TestRepeatedActionDetection:
+    """Tests para detección de acciones repetidas (loop prevention)."""
+
+    @patch('src.test_runner.AIOrchestrator')
+    @patch('src.test_runner.AppiumSkills')
+    @patch('src.test_runner.UIParser')
+    @patch('src.test_runner.Config')
+    @patch('src.test_runner.time')
+    def test_repeated_action_fails_after_3_attempts(self, mock_time, mock_config, 
+                                                     mock_ui_parser_class, mock_skills_class, 
+                                                     mock_orchestrator_class):
+        """Test: La misma acción repetida 3 veces falla el paso."""
+        mock_config.validate.return_value = (True, None)
+        mock_config.debug_print_config = Mock()
+        mock_time.sleep = Mock()
+        mock_time.time = Mock(return_value=1000)
+
+        mock_driver = Mock()
+        mock_driver.session_id = "test-session"
+
+        # Mock UIParser
+        mock_ui_parser = Mock()
+        mock_ui_parser.parse_screen.return_value = [
+            {"id": 5, "role": "input", "label": "Password", "checked": None}
+        ]
+        mock_ui_parser.debug_dump_element_map = Mock()
+        mock_ui_parser_class.return_value = mock_ui_parser
+
+        # Mock AppiumSkills - acción siempre "exitosa" pero sin progreso real
+        mock_skills = Mock()
+        mock_skills.get_screen_tree_stable.return_value = "<hierarchy/>"
+        mock_skills.fill_field_by_id.return_value = "Success: Typed text"
+        mock_skills.wait_for_ui_stable.return_value = (True, 100, "stable")
+        mock_skills.get_action_stats.return_value = {}
+        mock_skills_class.return_value = mock_skills
+
+        # Mock AIOrchestrator - siempre decide la misma acción (fill_field_by_id)
+        # Simula IA atascada intentando escribir en el mismo campo
+        same_action = {
+            "tool_calls": [{"name": "fill_field_by_id", "arguments": {"element_id": 5, "value": "password123"}, "id": "1"}],
+            "message": None
+        }
+        mock_orchestrator = Mock()
+        # Retorna la misma acción repetidamente
+        mock_orchestrator.decide_next_action.return_value = same_action
+        mock_orchestrator.get_stats.return_value = {}
+        mock_orchestrator_class.return_value = mock_orchestrator
+
+        from src.test_runner import AITestRunner
+        runner = AITestRunner(mock_driver)
+
+        # Ejecutar paso - debe fallar por acciones repetidas
+        result = runner.run_test_plan(["Escribir contraseña 'password123'"])
+
+        # Verificar que falló
+        assert result is False
+        
+        # Verificar que se llamó a la IA 3 veces (el límite de repeticiones)
+        assert mock_orchestrator.decide_next_action.call_count == 3
+
+    @patch('src.test_runner.AIOrchestrator')
+    @patch('src.test_runner.AppiumSkills')
+    @patch('src.test_runner.UIParser')
+    @patch('src.test_runner.Config')
+    @patch('src.test_runner.time')
+    def test_different_actions_dont_trigger_limit(self, mock_time, mock_config, 
+                                                   mock_ui_parser_class, mock_skills_class, 
+                                                   mock_orchestrator_class):
+        """Test: Acciones diferentes no activan el límite de repeticiones."""
+        mock_config.validate.return_value = (True, None)
+        mock_config.debug_print_config = Mock()
+        mock_time.sleep = Mock()
+        mock_time.time = Mock(return_value=1000)
+
+        mock_driver = Mock()
+        mock_driver.session_id = "test-session"
+
+        # Mock UIParser
+        mock_ui_parser = Mock()
+        mock_ui_parser.parse_screen.return_value = [
+            {"id": 1, "role": "input", "label": "Email"},
+            {"id": 2, "role": "input", "label": "Password"},
+            {"id": 3, "role": "button", "label": "Login"},
+        ]
+        mock_ui_parser_class.return_value = mock_ui_parser
+
+        # Mock AppiumSkills
+        mock_skills = Mock()
+        mock_skills.get_screen_tree_stable.return_value = "<hierarchy/>"
+        mock_skills.fill_field_by_id.return_value = "Success: Typed"
+        mock_skills.touch_element_by_id.return_value = "Success: Clicked"
+        mock_skills.wait_for_ui_stable.return_value = (True, 100, "stable")
+        mock_skills_class.return_value = mock_skills
+
+        # Mock AIOrchestrator - diferentes acciones seguidas de completado
+        mock_orchestrator = Mock()
+        mock_orchestrator.decide_next_action.side_effect = [
+            {"tool_calls": [{"name": "fill_field_by_id", "arguments": {"element_id": 1, "value": "user@test.com"}, "id": "1"}], "message": None},
+            {"tool_calls": [{"name": "fill_field_by_id", "arguments": {"element_id": 2, "value": "password"}, "id": "2"}], "message": None},
+            {"tool_calls": [{"name": "touch_element_by_id", "arguments": {"element_id": 3}, "id": "3"}], "message": None},
+            {"tool_calls": [], "message": "Paso completado"}
+        ]
+        mock_orchestrator.get_stats.return_value = {}
+        mock_orchestrator_class.return_value = mock_orchestrator
+
+        from src.test_runner import AITestRunner
+        runner = AITestRunner(mock_driver)
+
+        result = runner.run_test_plan(["Hacer login con email y contraseña"])
+
+        # Debe ser exitoso ya que las acciones son diferentes
+        assert result is True
+
+    @patch('src.test_runner.AIOrchestrator')
+    @patch('src.test_runner.AppiumSkills')
+    @patch('src.test_runner.UIParser')
+    @patch('src.test_runner.Config')
+    @patch('src.test_runner.time')
+    def test_same_action_different_args_dont_trigger_limit(self, mock_time, mock_config, 
+                                                            mock_ui_parser_class, mock_skills_class, 
+                                                            mock_orchestrator_class):
+        """Test: Misma herramienta con diferentes argumentos no activa el límite."""
+        mock_config.validate.return_value = (True, None)
+        mock_config.debug_print_config = Mock()
+        mock_time.sleep = Mock()
+        mock_time.time = Mock(return_value=1000)
+
+        mock_driver = Mock()
+        mock_driver.session_id = "test-session"
+
+        # Mock UIParser
+        mock_ui_parser = Mock()
+        mock_ui_parser.parse_screen.return_value = [
+            {"id": 1, "role": "input", "label": "Field1"},
+            {"id": 2, "role": "input", "label": "Field2"},
+        ]
+        mock_ui_parser_class.return_value = mock_ui_parser
+
+        # Mock AppiumSkills
+        mock_skills = Mock()
+        mock_skills.get_screen_tree_stable.return_value = "<hierarchy/>"
+        mock_skills.fill_field_by_id.return_value = "Success: Typed"
+        mock_skills.wait_for_ui_stable.return_value = (True, 100, "stable")
+        mock_skills_class.return_value = mock_skills
+
+        # Mock AIOrchestrator - misma herramienta pero con diferentes element_id
+        mock_orchestrator = Mock()
+        mock_orchestrator.decide_next_action.side_effect = [
+            {"tool_calls": [{"name": "fill_field_by_id", "arguments": {"element_id": 1, "value": "text1"}, "id": "1"}], "message": None},
+            {"tool_calls": [{"name": "fill_field_by_id", "arguments": {"element_id": 2, "value": "text2"}, "id": "2"}], "message": None},
+            {"tool_calls": [{"name": "fill_field_by_id", "arguments": {"element_id": 1, "value": "text3"}, "id": "3"}], "message": None},
+            {"tool_calls": [], "message": "Paso completado"}
+        ]
+        mock_orchestrator.get_stats.return_value = {}
+        mock_orchestrator_class.return_value = mock_orchestrator
+
+        from src.test_runner import AITestRunner
+        runner = AITestRunner(mock_driver)
+
+        result = runner.run_test_plan(["Llenar múltiples campos"])
+
+        # Debe ser exitoso ya que los argumentos son diferentes
+        assert result is True
