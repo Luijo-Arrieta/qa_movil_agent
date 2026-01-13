@@ -12,7 +12,7 @@ Es una herramienta que te permite escribir pruebas automáticas para aplicacione
 "Verificar que aparezca el texto Bienvenido"
 ```
 
-La inteligencia artificial (GPT-4 o Claude) analiza la pantalla del celular y ejecuta las acciones automáticamente.
+La inteligencia artificial (GPT-4, Claude o DeepSeek) analiza la pantalla del celular y ejecuta las acciones automáticamente.
 
 ## ¿Cómo funciona?
 
@@ -83,7 +83,7 @@ El sistema está compuesto por 5 módulos principales que trabajan en secuencia:
 │   ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐         │
 │   │              │    │              │    │                      │         │
 │   │  Test Runner │───▶│   UIParser   │───▶│   AI Orchestrator    │         │
-│   │              │    │              │    │   (GPT-4 / Claude)   │         │
+│   │              │    │              │    │(GPT-4/Claude/DeepSeek)│        │
 │   └──────────────┘    └──────────────┘    └──────────────────────┘         │
 │          │                   │                       │                      │
 │          │                   │                       │                      │
@@ -113,7 +113,7 @@ El sistema está compuesto por 5 módulos principales que trabajan en secuencia:
 |------------|---------|---------|
 | **Test Runner** | `src/test_runner.py` | Orquesta la ejecución de pruebas. Recibe un plan en lenguaje natural y coordina los demás módulos. |
 | **UIParser** | `src/ui_parser.py` | Convierte el XML complejo de Android en JSON simple. Asigna IDs temporales a cada elemento. |
-| **AI Orchestrator** | `src/ai_orchestrator.py` | Se comunica con GPT-4 o Claude. Envía la pantalla y recibe qué acción ejecutar. |
+| **AI Orchestrator** | `src/ai_orchestrator.py` | Se comunica con GPT-4, Claude o DeepSeek. Envía la pantalla y recibe qué acción ejecutar. |
 | **Agent Tools** | `src/agent_tools.py` | Ejecuta las acciones físicas: tocar, escribir, scroll, verificar texto. |
 | **Config** | `src/config.py` | Gestiona la configuración: API keys, dispositivo, timeouts. |
 

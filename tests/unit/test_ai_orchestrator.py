@@ -67,6 +67,36 @@ class TestAIOrchestratorInit:
         assert "ANTHROPIC_API_KEY" in str(exc_info.value)
 
     @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_init_deepseek_success(self, mock_openai_class, mock_config):
+        """Test: Inicialización exitosa con DeepSeek."""
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = "sk-deepseek-test-key"
+        mock_config.DEEPSEEK_MODEL = "deepseek-chat"
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        assert orchestrator.provider == "deepseek"
+        assert orchestrator.model == "deepseek-chat"
+        # Verificar que OpenAI se inicializa con base_url correcto
+        mock_openai_class.assert_called_once_with(
+            api_key="sk-deepseek-test-key",
+            base_url="https://api.deepseek.com"
+        )
+
+    @patch('src.ai_orchestrator.Config')
+    def test_init_missing_deepseek_key(self, mock_config):
+        """Test: Error cuando falta DEEPSEEK_API_KEY."""
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = None
+
+        from src.ai_orchestrator import AIOrchestrator
+        with pytest.raises(ValueError) as exc_info:
+            AIOrchestrator()
+        assert "DEEPSEEK_API_KEY" in str(exc_info.value)
+
+    @patch('src.ai_orchestrator.Config')
     def test_init_invalid_provider(self, mock_config):
         """Test: Error con proveedor no soportado."""
         mock_config.DEFAULT_AI_PROVIDER = "invalid_provider"
@@ -304,6 +334,109 @@ class TestCallOpenAI:
         assert "API Error" in str(exc_info.value)
 
 
+class TestCallDeepSeek:
+    """Tests para DeepSeek (usa la misma API que OpenAI)."""
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_call_deepseek_with_tool_call(self, mock_openai_class, mock_config):
+        """Test: Llamada a DeepSeek que retorna tool call."""
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = "sk-deepseek-test"
+        mock_config.DEEPSEEK_MODEL = "deepseek-chat"
+
+        # Mock de la respuesta (mismo formato que OpenAI)
+        mock_tool_call = Mock()
+        mock_tool_call.id = "call_deepseek_123"
+        mock_tool_call.function.name = "touch_element_by_id"
+        mock_tool_call.function.arguments = '{"element_id": 2}'
+
+        mock_message = Mock()
+        mock_message.content = None
+        mock_message.tool_calls = [mock_tool_call]
+
+        mock_choice = Mock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "tool_calls"
+
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "deepseek-chat"
+        mock_response.usage = Mock(prompt_tokens=120, completion_tokens=60, total_tokens=180)
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        result = orchestrator._call_openai("test context", [])
+
+        assert result["provider"] == "deepseek"
+        assert len(result["tool_calls"]) == 1
+        assert result["tool_calls"][0]["name"] == "touch_element_by_id"
+        assert result["tool_calls"][0]["arguments"] == {"element_id": 2}
+        # Verificar que se usó el base_url correcto
+        mock_openai_class.assert_called_once_with(
+            api_key="sk-deepseek-test",
+            base_url="https://api.deepseek.com"
+        )
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_call_deepseek_no_tool_call(self, mock_openai_class, mock_config):
+        """Test: Llamada a DeepSeek que retorna mensaje sin tool call."""
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = "sk-deepseek-test"
+        mock_config.DEEPSEEK_MODEL = "deepseek-chat"
+
+        mock_message = Mock()
+        mock_message.content = "El paso está completado con DeepSeek"
+        mock_message.tool_calls = None
+
+        mock_choice = Mock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "deepseek-chat"
+        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        result = orchestrator._call_openai("test context", [])
+
+        assert result["provider"] == "deepseek"
+        assert len(result["tool_calls"]) == 0
+        assert result["message"] == "El paso está completado con DeepSeek"
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_call_deepseek_api_error(self, mock_openai_class, mock_config):
+        """Test: Error en API de DeepSeek."""
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = "sk-deepseek-test"
+        mock_config.DEEPSEEK_MODEL = "deepseek-chat"
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.side_effect = Exception("DeepSeek API Error")
+        mock_openai_class.return_value = mock_client
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        with pytest.raises(Exception) as exc_info:
+            orchestrator._call_openai("test context", [])
+        assert "DeepSeek API Error" in str(exc_info.value)
+
+
 class TestCallAnthropic:
     """Tests para _call_anthropic()."""
 
@@ -481,6 +614,58 @@ class TestDecideNextAction:
 
     @patch('src.ai_orchestrator.Config')
     @patch('src.ai_orchestrator.OpenAI')
+    def test_decide_action_calls_deepseek(self, mock_openai_class, mock_config):
+        """Test: decide_next_action llama a DeepSeek correctamente."""
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = "sk-deepseek-test"
+        mock_config.DEEPSEEK_MODEL = "deepseek-chat"
+
+        # Mock respuesta (mismo formato que OpenAI)
+        mock_tool_call = Mock()
+        mock_tool_call.id = "call_deepseek_456"
+        mock_tool_call.function.name = "fill_field_by_id"
+        mock_tool_call.function.arguments = '{"element_id": 1, "value": "test@example.com"}'
+
+        mock_message = Mock()
+        mock_message.content = None
+        mock_message.tool_calls = [mock_tool_call]
+
+        mock_choice = Mock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "tool_calls"
+
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "deepseek-chat"
+        mock_response.usage = Mock(prompt_tokens=150, completion_tokens=75, total_tokens=225)
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        ui_elements = [{"id": 1, "role": "input", "label": "Email", "checked": None}]
+        result = orchestrator.decide_next_action(
+            ui_elements=ui_elements,
+            current_step="Ingresar email",
+            action_history=[],
+            objective="Probar login",
+        )
+
+        assert result["tool_calls"][0]["name"] == "fill_field_by_id"
+        assert result["tool_calls"][0]["arguments"]["element_id"] == 1
+        assert result["tool_calls"][0]["arguments"]["value"] == "test@example.com"
+        mock_client.chat.completions.create.assert_called_once()
+        # Verificar que se configuró con el base_url correcto
+        mock_openai_class.assert_called_once_with(
+            api_key="sk-deepseek-test",
+            base_url="https://api.deepseek.com"
+        )
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
     def test_decide_action_updates_stats(self, mock_openai_class, mock_config):
         """Test: decide_next_action actualiza estadísticas."""
         mock_config.DEFAULT_AI_PROVIDER = "openai"
@@ -572,3 +757,207 @@ class TestGetStats:
         stats = orchestrator.get_stats()
         assert "success_rate" in stats
         assert stats["success_rate"] == "100.0%"
+
+
+class TestModelConnections:
+    """Tests para validar que las conexiones a los modelos están correctas."""
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_openai_connection_configuration(self, mock_openai_class, mock_config):
+        """Test: Validar configuración de conexión a OpenAI."""
+        mock_config.DEFAULT_AI_PROVIDER = "openai"
+        mock_config.OPENAI_API_KEY = "sk-openai-test-key-12345"
+        mock_config.OPENAI_MODEL = "gpt-4o"
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        # Verificar que el cliente se inicializó correctamente
+        mock_openai_class.assert_called_once_with(api_key="sk-openai-test-key-12345")
+        assert orchestrator.provider == "openai"
+        assert orchestrator.model == "gpt-4o"
+        assert orchestrator.client is not None
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.Anthropic')
+    def test_anthropic_connection_configuration(self, mock_anthropic_class, mock_config):
+        """Test: Validar configuración de conexión a Anthropic."""
+        mock_config.DEFAULT_AI_PROVIDER = "anthropic"
+        mock_config.ANTHROPIC_API_KEY = "sk-ant-anthropic-test-key-12345"
+        mock_config.ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        # Verificar que el cliente se inicializó correctamente
+        mock_anthropic_class.assert_called_once_with(api_key="sk-ant-anthropic-test-key-12345")
+        assert orchestrator.provider == "anthropic"
+        assert orchestrator.model == "claude-3-5-sonnet-20241022"
+        assert orchestrator.client is not None
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_deepseek_connection_configuration(self, mock_openai_class, mock_config):
+        """Test: Validar configuración de conexión a DeepSeek."""
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = "sk-deepseek-test-key-12345"
+        mock_config.DEEPSEEK_MODEL = "deepseek-chat"
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        # Verificar que el cliente se inicializó con base_url correcto
+        mock_openai_class.assert_called_once_with(
+            api_key="sk-deepseek-test-key-12345",
+            base_url="https://api.deepseek.com"
+        )
+        assert orchestrator.provider == "deepseek"
+        assert orchestrator.model == "deepseek-chat"
+        assert orchestrator.client is not None
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_openai_connection_with_api_call(self, mock_openai_class, mock_config):
+        """Test: Validar que la conexión a OpenAI funciona con una llamada real (mock)."""
+        mock_config.DEFAULT_AI_PROVIDER = "openai"
+        mock_config.OPENAI_API_KEY = "sk-openai-test"
+        mock_config.OPENAI_MODEL = "gpt-4o"
+
+        # Mock de respuesta exitosa
+        mock_message = Mock()
+        mock_message.content = "Test response"
+        mock_message.tool_calls = None
+
+        mock_choice = Mock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "gpt-4o"
+        mock_response.usage = Mock(prompt_tokens=50, completion_tokens=25, total_tokens=75)
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        # Hacer una llamada de prueba
+        result = orchestrator._call_openai("test context", [])
+
+        # Verificar que la conexión funcionó
+        assert result["provider"] == "openai"
+        assert result["message"] == "Test response"
+        mock_client.chat.completions.create.assert_called_once()
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.Anthropic')
+    def test_anthropic_connection_with_api_call(self, mock_anthropic_class, mock_config):
+        """Test: Validar que la conexión a Anthropic funciona con una llamada real (mock)."""
+        mock_config.DEFAULT_AI_PROVIDER = "anthropic"
+        mock_config.ANTHROPIC_API_KEY = "sk-ant-test"
+        mock_config.ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+
+        # Mock de respuesta exitosa
+        mock_text_block = Mock()
+        mock_text_block.type = "text"
+        mock_text_block.text = "Test response from Anthropic"
+
+        mock_message = Mock()
+        mock_message.content = [mock_text_block]
+        mock_message.stop_reason = "end_turn"
+        mock_message.model = "claude-3-5-sonnet-20241022"
+        mock_message.usage = Mock(input_tokens=50, output_tokens=25)
+
+        mock_client = Mock()
+        mock_client.messages.create.return_value = mock_message
+        mock_anthropic_class.return_value = mock_client
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        # Hacer una llamada de prueba
+        result = orchestrator._call_anthropic("test context", [])
+
+        # Verificar que la conexión funcionó
+        assert result["provider"] == "anthropic"
+        assert result["message"] == "Test response from Anthropic"
+        mock_client.messages.create.assert_called_once()
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_deepseek_connection_with_api_call(self, mock_openai_class, mock_config):
+        """Test: Validar que la conexión a DeepSeek funciona con una llamada real (mock)."""
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = "sk-deepseek-test"
+        mock_config.DEEPSEEK_MODEL = "deepseek-chat"
+
+        # Mock de respuesta exitosa (mismo formato que OpenAI)
+        mock_message = Mock()
+        mock_message.content = "Test response from DeepSeek"
+        mock_message.tool_calls = None
+
+        mock_choice = Mock()
+        mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        mock_response.model = "deepseek-chat"
+        mock_response.usage = Mock(prompt_tokens=50, completion_tokens=25, total_tokens=75)
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+
+        # Hacer una llamada de prueba
+        result = orchestrator._call_openai("test context", [])
+
+        # Verificar que la conexión funcionó
+        assert result["provider"] == "deepseek"
+        assert result["message"] == "Test response from DeepSeek"
+        mock_client.chat.completions.create.assert_called_once()
+        # Verificar que se usó el base_url correcto
+        mock_openai_class.assert_called_once_with(
+            api_key="sk-deepseek-test",
+            base_url="https://api.deepseek.com"
+        )
+
+    @patch('src.ai_orchestrator.Config')
+    @patch('src.ai_orchestrator.OpenAI')
+    def test_all_providers_use_correct_models(self, mock_openai_class, mock_config):
+        """Test: Validar que cada proveedor usa su modelo configurado correctamente."""
+        # Test OpenAI
+        mock_config.DEFAULT_AI_PROVIDER = "openai"
+        mock_config.OPENAI_API_KEY = "sk-openai"
+        mock_config.OPENAI_MODEL = "gpt-4o"
+        mock_openai_class.reset_mock()
+
+        from src.ai_orchestrator import AIOrchestrator
+        orchestrator_openai = AIOrchestrator()
+        assert orchestrator_openai.model == "gpt-4o"
+
+        # Test Anthropic (necesitamos mockear Anthropic también)
+        with patch('src.ai_orchestrator.Anthropic') as mock_anthropic_class:
+            mock_config.DEFAULT_AI_PROVIDER = "anthropic"
+            mock_config.ANTHROPIC_API_KEY = "sk-ant"
+            mock_config.ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+            mock_anthropic_class.reset_mock()
+
+            orchestrator_anthropic = AIOrchestrator()
+            assert orchestrator_anthropic.model == "claude-3-5-sonnet-20241022"
+
+        # Test DeepSeek
+        mock_config.DEFAULT_AI_PROVIDER = "deepseek"
+        mock_config.DEEPSEEK_API_KEY = "sk-deepseek"
+        mock_config.DEEPSEEK_MODEL = "deepseek-chat"
+        mock_openai_class.reset_mock()
+
+        orchestrator_deepseek = AIOrchestrator()
+        assert orchestrator_deepseek.model == "deepseek-chat"

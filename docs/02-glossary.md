@@ -6,7 +6,7 @@ Esta guía explica los términos técnicos que encontrarás en el proyecto, usan
 
 ### API Key (Clave de API)
 
-**¿Qué es?** Una contraseña especial que te permite usar servicios externos como OpenAI o Anthropic.
+**¿Qué es?** Una contraseña especial que te permite usar servicios externos como OpenAI, Anthropic o DeepSeek.
 
 **Analogía:** Es como la tarjeta de acceso a un edificio. Sin ella, no puedes entrar a usar los servicios.
 
@@ -302,12 +302,12 @@ assert len(lista) > 0           # Verifica que la lista no esté vacía
 
 ### AI Orchestrator
 
-**¿Qué es?** El componente que se comunica con la inteligencia artificial (OpenAI/Anthropic) para decidir qué hacer.
+**¿Qué es?** El componente que se comunica con la inteligencia artificial (OpenAI/Anthropic/DeepSeek) para decidir qué hacer.
 
 **Analogía:** Es el "cerebro" del sistema. Recibe la información de la pantalla, piensa qué acción tomar, y da las instrucciones.
 
 **Flujo:**
 1. Recibe: JSON de elementos en pantalla + paso a ejecutar
-2. Envía todo a GPT-4 o Claude
+2. Envía todo a GPT-4, Claude o DeepSeek
 3. La IA responde: "Toca el elemento con ID 2"
 4. Devuelve esa decisión al sistema
