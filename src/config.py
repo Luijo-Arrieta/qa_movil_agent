@@ -32,11 +32,13 @@ class Config:
     # API Keys
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
     ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
+    DEEPSEEK_API_KEY: Optional[str] = os.getenv("DEEPSEEK_API_KEY")
 
     # Configuración de modelos
-    DEFAULT_AI_PROVIDER: str = os.getenv("AI_PROVIDER", "openai")  # "openai" o "anthropic"
+    DEFAULT_AI_PROVIDER: str = os.getenv("AI_PROVIDER", "openai")  # "openai", "anthropic" o "deepseek"
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o")
     ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
     # Configuración de Appium
     APPIUM_SERVER_URL: str = os.getenv("APPIUM_SERVER_URL", "http://localhost:4723")
@@ -91,13 +93,16 @@ class Config:
         # API Keys (ocultar valor real)
         openai_key_status = "✓ Configurada" if cls.OPENAI_API_KEY else "✗ NO configurada"
         anthropic_key_status = "✓ Configurada" if cls.ANTHROPIC_API_KEY else "✗ NO configurada"
+        deepseek_key_status = "✓ Configurada" if cls.DEEPSEEK_API_KEY else "✗ NO configurada"
         logger.info(f"  OPENAI_API_KEY: {openai_key_status}")
         logger.info(f"  ANTHROPIC_API_KEY: {anthropic_key_status}")
+        logger.info(f"  DEEPSEEK_API_KEY: {deepseek_key_status}")
         
         # Configuración de AI
         logger.info(f"  AI_PROVIDER: {cls.DEFAULT_AI_PROVIDER}")
         logger.info(f"  OPENAI_MODEL: {cls.OPENAI_MODEL}")
         logger.info(f"  ANTHROPIC_MODEL: {cls.ANTHROPIC_MODEL}")
+        logger.info(f"  DEEPSEEK_MODEL: {cls.DEEPSEEK_MODEL}")
         
         # Configuración de Appium
         logger.info("-" * 40)
@@ -150,8 +155,8 @@ class Config:
         
         # Validar proveedor de IA
         logger.debug(f"CONFIG: Validando proveedor de IA: {cls.DEFAULT_AI_PROVIDER}")
-        if cls.DEFAULT_AI_PROVIDER not in ["openai", "anthropic"]:
-            errors.append(f"AI_PROVIDER inválido: '{cls.DEFAULT_AI_PROVIDER}'. Debe ser 'openai' o 'anthropic'")
+        if cls.DEFAULT_AI_PROVIDER not in ["openai", "anthropic", "deepseek"]:
+            errors.append(f"AI_PROVIDER inválido: '{cls.DEFAULT_AI_PROVIDER}'. Debe ser 'openai', 'anthropic' o 'deepseek'")
         
         # Validar API keys según el proveedor
         if cls.DEFAULT_AI_PROVIDER == "openai":
@@ -165,6 +170,12 @@ class Config:
                 errors.append("ANTHROPIC_API_KEY no está configurada en variables de entorno")
             else:
                 logger.debug("CONFIG: ✓ ANTHROPIC_API_KEY presente")
+        
+        if cls.DEFAULT_AI_PROVIDER == "deepseek":
+            if not cls.DEEPSEEK_API_KEY:
+                errors.append("DEEPSEEK_API_KEY no está configurada en variables de entorno")
+            else:
+                logger.debug("CONFIG: ✓ DEEPSEEK_API_KEY presente")
         
         # Validar configuración de Appium
         logger.debug("CONFIG: Validando configuración de Appium...")

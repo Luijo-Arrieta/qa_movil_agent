@@ -33,7 +33,7 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 **Key Components:**
 - `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs. Generates hierarchical XPaths similar to Appium Inspector (short, readable paths).
 - `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert)
-- `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic) with function calling. Uses TOON format for token efficiency.
+- `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic/DeepSeek) with function calling. Uses TOON format for token efficiency.
 - `src/test_runner.py` - Orchestrates test execution with intelligent retry system (max 3 attempts per step)
 - `src/config.py` - Environment configuration. Loads `.env` then `.env.local` (override)
 
@@ -154,8 +154,8 @@ tests/
 Copy `.env.example` to `.env.local` and configure:
 
 **Required:**
-- `AI_PROVIDER`: "openai" or "anthropic"
-- `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`
+- `AI_PROVIDER`: "openai", "anthropic" or "deepseek"
+- `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`
 - `ANDROID_APP_PATH`: Path to APK (recommended) OR `ANDROID_APP_PACKAGE` + `ANDROID_APP_ACTIVITY`
 - `ANDROID_DEVICE_NAME`: Device/emulator ID (check with `adb devices`)
 

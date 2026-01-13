@@ -12,7 +12,7 @@ Esta guía detalla todo lo que necesitas tener instalado antes de usar AutoDroid
 | Android SDK | API 30+ | Herramientas para controlar Android |
 | Node.js | 18+ | Requerido por Appium |
 | Appium | 2.0+ | Controla el dispositivo Android |
-| API Key | - | Acceso a OpenAI o Anthropic |
+| API Key | - | Acceso a OpenAI, Anthropic o DeepSeek |
 
 ---
 
@@ -292,10 +292,10 @@ appium driver install uiautomator2
 
 ---
 
-## 7. API Key (OpenAI o Anthropic)
+## 7. API Key (OpenAI, Anthropic o DeepSeek)
 
 ### ¿Qué es?
-Una API Key es una "contraseña" que te permite usar los servicios de inteligencia artificial de OpenAI (GPT-4) o Anthropic (Claude).
+Una API Key es una "contraseña" que te permite usar los servicios de inteligencia artificial de OpenAI (GPT-4), Anthropic (Claude) o DeepSeek.
 
 ### Obtener API Key de OpenAI
 
@@ -315,6 +315,14 @@ Una API Key es una "contraseña" que te permite usar los servicios de inteligenc
 4. Clic en "Create Key"
 5. Copia la clave (empieza con `sk-ant-...`)
 
+### Obtener API Key de DeepSeek
+
+1. Ve a [platform.deepseek.com](https://platform.deepseek.com/)
+2. Crea una cuenta o inicia sesión
+3. Ve a API Keys
+4. Clic en "Create API Key"
+5. Copia la clave (empieza con `sk-...`)
+
 ### Configurar en el proyecto
 
 Crea o edita el archivo `.env.local` en la raíz del proyecto:
@@ -327,6 +335,11 @@ OPENAI_API_KEY=sk-tu-clave-aqui
 # Para Anthropic
 AI_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-tu-clave-aqui
+
+# Para DeepSeek
+AI_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-tu-clave-aqui
+DEEPSEEK_MODEL=deepseek-chat  # Opcional, este es el valor por defecto
 ```
 
 ### Verificar que funciona

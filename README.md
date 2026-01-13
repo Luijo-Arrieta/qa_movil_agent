@@ -7,7 +7,7 @@ Agente de IA autónomo para ejecutar pruebas móviles en Android. Recibe objetiv
 - **Autonomía completa**: El agente decide qué acciones ejecutar basándose en el contexto de la pantalla
 - **Lenguaje natural**: Define tus pruebas en español (o cualquier idioma) sin código complejo
 - **Self-healing**: Sistema de reintentos automáticos cuando algo falla
-- **Soporte multi-IA**: Compatible con OpenAI GPT-4o y Anthropic Claude 3.5 Sonnet
+- **Soporte multi-IA**: Compatible con OpenAI GPT-4o, Anthropic Claude 3.5 Sonnet y DeepSeek
 - **UIParser inteligente**: Filtra y simplifica la UI para consumo eficiente por LLMs
 
 ## 🏗️ Arquitectura
@@ -28,7 +28,7 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 - Poetry (gestor de dependencias)
 - Appium Server corriendo (puerto 4723 por defecto)
 - Dispositivo Android o emulador conectado
-- API Key de OpenAI o Anthropic
+- API Key de OpenAI, Anthropic o DeepSeek
 - Allure CLI (opcional, para generar reportes HTML)
 
 ## 🚀 Instalación
@@ -96,11 +96,12 @@ Edita el archivo `.env` con tus valores:
 
 ```env
 # Proveedor de IA
-AI_PROVIDER=openai  # o "anthropic"
+AI_PROVIDER=openai  # o "anthropic" o "deepseek"
 
 # API Keys
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
+DEEPSEEK_API_KEY=sk-...
 
 # Configuración de Appium
 APPIUM_SERVER_URL=http://localhost:4723
@@ -359,35 +360,38 @@ poetry run pytest --timeout=300
 
 El proyecto usa Allure para generar reportes HTML interactivos con screenshots y logs detallados.
 
-### Instalar Allure CLI
+### Configurar Allure CLI
 
-**Windows:**
+**Windows:** Agrega Allure al PATH del sistema o usa la ruta completa:
 
-1. Descarga desde [GitHub Releases](https://github.com/allure-framework/allure2/releases)
-2. Busca `allure-X.X.X.zip` (ej: `allure-2.36.0.zip`)
-3. Descomprime en `C:\allure\`
-4. Agrega `C:\allure\allure-2.36.0\bin` al PATH de Windows
+```powershell
+# Opción 1: Agregar al PATH temporalmente (solo esta sesión)
+$env:Path += ";D:\Imagine\allure-2.36.0\allure-2.36.0\bin"
 
-**Linux/macOS (con Homebrew):**
-
-```bash
-brew install allure
+# Opción 2: Agregar permanentemente al PATH del sistema
+# Ve a: Panel de Control > Sistema > Configuración avanzada > Variables de entorno
+# Agrega: D:\Imagine\allure-2.36.0\allure-2.36.0\bin al PATH del Usuario o del Sistema
 ```
 
-**Linux (manual):**
-
-```bash
-cd ~
-wget https://github.com/allure-framework/allure2/releases/download/2.36.0/allure-2.36.0.tgz
-tar -zxvf allure-2.36.0.tgz
-echo 'export PATH=$PATH:~/allure-2.36.0/bin' >> ~/.bashrc
-source ~/.bashrc
-```
-
-### Verificar instalación
-
+**Verificar instalación:**
 ```bash
 allure --version
+```
+
+**Si agregaste Allure al PATH pero no funciona en tu terminal:**
+
+Las terminales abiertas antes de agregar la ruta no recargan el PATH automáticamente. Soluciones:
+
+```powershell
+# Opción 1: Recargar PATH manualmente (en la terminal actual)
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+allure --version
+
+# Opción 2: Cerrar y reabrir la terminal (recomendado)
+# Esto carga automáticamente el PATH actualizado
+
+# Opción 3: Usar el script helper
+.\scripts\reload_path.ps1
 ```
 
 ### Generar reportes
@@ -395,12 +399,17 @@ allure --version
 Después de ejecutar tests:
 
 ```bash
-# Opción 1: Generar y abrir automáticamente
-allure serve reports/allure-results
+# Opción 1: Usar el script (recomendado)
+poetry run python scripts/generate_report.py
 
-# Opción 2: Generar HTML estático
+# Opción 2: Usar el CLI directamente
 allure generate reports/allure-results -o reports/allure-report --clean
+
+# Opción 3: Servir el reporte interactivo (se abre en el navegador)
+allure serve reports/allure-results
 ```
+
+El reporte se genera en `reports/allure-report/index.html` - ábrelo en tu navegador para ver los resultados.
 
 El reporte incluye:
 
@@ -466,8 +475,11 @@ decision = orchestrator.decide_next_action(
 
 ## 🔧 Troubleshooting
 
-### Error: "OPENAI_API_KEY no está configurada"
-- Verifica que el archivo `.env` existe y contiene la API key correcta
+### Error: "API_KEY no está configurada"
+- Verifica que el archivo `.env` existe y contiene la API key correcta para el proveedor seleccionado
+- Para OpenAI: `OPENAI_API_KEY`
+- Para Anthropic: `ANTHROPIC_API_KEY`
+- Para DeepSeek: `DEEPSEEK_API_KEY`
 
 ### Error: "No se puede conectar a Appium"
 - Asegúrate de que Appium Server está corriendo: `appium`
@@ -506,6 +518,6 @@ Este proyecto está bajo la Licencia MIT.
 ## 🙏 Agradecimientos
 
 - Appium por la infraestructura de automatización móvil
-- OpenAI y Anthropic por los modelos de IA
+- OpenAI, Anthropic y DeepSeek por los modelos de IA
 - La comunidad de testing automatizado
 

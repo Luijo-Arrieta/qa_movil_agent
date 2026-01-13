@@ -1,6 +1,6 @@
 """
 AI Orchestrator - Orquesta las decisiones de IA para ejecutar acciones en la app móvil.
-Soporta OpenAI y Anthropic.
+Soporta OpenAI, Anthropic y DeepSeek.
 
 Los elementos de UI se envían al LLM en formato TOON (Token-Oriented Object Notation)
 para reducir el consumo de tokens en un 30-60%.
@@ -121,6 +121,20 @@ class AIOrchestrator:
             self.model = Config.ANTHROPIC_MODEL
             logger.info(f"AI_ORCHESTRATOR: ✓ Cliente Anthropic configurado con modelo: {self.model}")
             
+        elif self.provider == "deepseek":
+            logger.debug("AI_ORCHESTRATOR: Configurando cliente DeepSeek...")
+            if not Config.DEEPSEEK_API_KEY:
+                logger.error("AI_ORCHESTRATOR ERROR: DEEPSEEK_API_KEY no está configurada")
+                raise ValueError("DEEPSEEK_API_KEY no está configurada")
+            
+            # DeepSeek es compatible con OpenAI API, solo cambiamos el base_url
+            self.client = OpenAI(
+                api_key=Config.DEEPSEEK_API_KEY,
+                base_url="https://api.deepseek.com"
+            )
+            self.model = Config.DEEPSEEK_MODEL
+            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente DeepSeek configurado con modelo: {self.model}")
+            
         else:
             logger.error(f"AI_ORCHESTRATOR ERROR: Proveedor no soportado: {self.provider}")
             raise ValueError(f"Proveedor de IA no soportado: {self.provider}")
@@ -180,6 +194,9 @@ class AIOrchestrator:
             if self.provider == "openai":
                 logger.info(f"AI_ORCHESTRATOR: Llamando a OpenAI ({self.model})...")
                 result = self._call_openai(context, tools)
+            elif self.provider == "deepseek":
+                logger.info(f"AI_ORCHESTRATOR: Llamando a DeepSeek ({self.model})...")
+                result = self._call_openai(context, tools)  # DeepSeek usa la misma API que OpenAI
             else:  # anthropic
                 logger.info(f"AI_ORCHESTRATOR: Llamando a Anthropic ({self.model})...")
                 result = self._call_anthropic(context, tools)
@@ -493,7 +510,7 @@ class AIOrchestrator:
 
         # Procesar respuesta
         result = {
-            "provider": "openai",
+            "provider": self.provider,
             "message": message.content,
             "tool_calls": [],
             "raw_response": {

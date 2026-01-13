@@ -333,8 +333,17 @@ Espera a que se instalen todas las dependencias (puede tardar 2-3 minutos).
 
 3. Configura al menos estas variables:
    ```
+   # Opción 1: OpenAI
    AI_PROVIDER=openai
    OPENAI_API_KEY=sk-tu-api-key-aqui
+
+   # Opción 2: Anthropic
+   # AI_PROVIDER=anthropic
+   # ANTHROPIC_API_KEY=sk-ant-tu-api-key-aqui
+
+   # Opción 3: DeepSeek
+   # AI_PROVIDER=deepseek
+   # DEEPSEEK_API_KEY=sk-tu-api-key-aqui
 
    ANDROID_DEVICE_NAME=emulator-5554
    ANDROID_APP_PATH=/home/tu_usuario/ruta/a/tu/app.apk
