@@ -22,6 +22,20 @@ import pytest
 LOGS_DIR = Path(__file__).parent.parent / "reports" / "logs"
 
 
+class SafeFileHandler(logging.FileHandler):
+    """
+    Handler de logging que ignora errores cuando el archivo está cerrado.
+    Esto previene errores cuando objetos intentan escribir logs después
+    de que pytest ya cerró los handlers (ej: destructores de httpx/openai).
+    """
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except (ValueError, OSError):
+            # Ignorar errores de I/O cuando el archivo está cerrado
+            pass
+
+
 def _setup_file_logging():
     """
     Configura logging a archivo con timestamp.
@@ -44,7 +58,8 @@ def _setup_file_logging():
     root_logger.setLevel(logging.DEBUG)
     
     # Crear handler para archivo con encoding UTF-8
-    file_handler = logging.FileHandler(
+    # Usar SafeFileHandler para ignorar errores cuando el archivo está cerrado
+    file_handler = SafeFileHandler(
         log_filepath, 
         mode='w', 
         encoding='utf-8'
@@ -116,13 +131,23 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
-    """Log al finalizar la sesión de pytest."""
+    """
+    Log al finalizar la sesión de pytest.
+    Los handlers se cierran automáticamente al salir del proceso.
+    SafeFileHandler ignora errores si objetos intentan escribir después.
+    """
     logger = logging.getLogger(__name__)
-    logger.info("=" * 70)
-    logger.info("PYTEST SESSION FINISHED")
-    if _current_log_file:
-        logger.info(f"Log saved to: {_current_log_file}")
-    logger.info("=" * 70)
+    try:
+        logger.info("=" * 70)
+        logger.info("PYTEST SESSION FINISHED")
+        if _current_log_file:
+            logger.info(f"Log saved to: {_current_log_file}")
+        logger.info("=" * 70)
+    except Exception:
+        pass  # Ignorar errores si el handler ya está cerrado
+    
+    # Los handlers se cerrarán automáticamente cuando el proceso termine
+    # SafeFileHandler previene errores si objetos intentan escribir después
 
 
 @pytest.fixture(scope="session")
