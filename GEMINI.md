@@ -118,6 +118,7 @@ tests/
     ├── conftest.py          # E2E fixtures (driver_setup, Allure)
     ├── test_ui_parser_integration.py  # Project integration tests
     └── examples/            # User test examples
+        ├── test_example.py  # ✅ Functional examples using AITestRunner
         └── spec_example.py  # User specs (use spec_*.py prefix)
 ```
 
@@ -269,6 +270,58 @@ test_plan = [
     "Verificar que la solicitud fue aceptada",
 ]
 ```
+
+## Working Examples
+
+A fully functional example file is available at `tests/specs/examples/test_example.py` demonstrating:
+
+### Example 1: Login Flow with AITestRunner
+
+```python
+from src.test_runner import AITestRunner
+from src.config import Config
+
+def test_login_flow_example(self, driver_setup):
+    objective = "Realizar login en la aplicación con credenciales de prueba"
+    
+    test_email = Config.TEST_USER_EMAIL
+    test_password = Config.TEST_USER_PASSWORD
+    
+    runner = AITestRunner(driver=driver_setup, objective=objective)
+    
+    test_plan = [
+        "Esperar a ver la pantalla de login",
+        f"Ingresar usuario '{test_email}'",
+        f"Ingresar password '{test_password}'",
+        "Tocar botón Ingresar",
+        "Verifica que se inició la sesión",
+    ]
+    
+    success = runner.run_test_plan(test_plan)
+    assert success, "El plan de prueba no se completó exitosamente"
+```
+
+### Example 2: Simple Navigation
+
+```python
+def test_simple_navigation_example(self, driver_setup):
+    runner = AITestRunner(driver=driver_setup)
+    
+    test_plan = [
+        "Abrir el menú principal",
+        "Seleccionar la opción 'Configuración'",
+        "Verificar que se abra la pantalla de configuración",
+    ]
+    
+    success = runner.run_test_plan(test_plan)
+    assert success, "La navegación no se completó exitosamente"
+```
+
+**Key Benefits of AITestRunner:**
+- No need to manually parse UI or write XPath selectors
+- Natural language test plans are easy to read and maintain
+- Automatic retry logic handles transient errors
+- Built-in loop detection prevents infinite retries
 
 ## Allure Reporting
 

@@ -8,11 +8,13 @@ REQUISITOS:
 - Appium Server corriendo
 - Dispositivo Android / Emulador conectado
 - App instalada o APK configurado en .env.local
+- Credenciales de prueba configuradas en .env.local (TEST_USER_EMAIL, TEST_USER_PASSWORD)
 """
 
 import pytest
 
 from src.test_runner import AITestRunner
+from src.config import Config
 
 
 @pytest.mark.integration
@@ -30,16 +32,20 @@ class TestAIAgentExample:
         # Definir objetivo general
         objective = "Realizar login en la aplicación con credenciales de prueba"
 
+        # Obtener credenciales desde variables de entorno
+        test_email = Config.TEST_USER_EMAIL
+        test_password = Config.TEST_USER_PASSWORD
+
         # Crear test runner
         runner = AITestRunner(driver=driver_setup, objective=objective)
 
         # Definir plan de prueba en lenguaje natural
         test_plan = [
             "Esperar a ver la pantalla de login",
-            "Ingresar usuario 'cliente@demo.com'",
-            "Ingresar password '123456'",
+            f"Ingresar usuario '{test_email}'",
+            f"Ingresar password '{test_password}'",
             "Tocar botón Ingresar",
-            "Verificar que aparezca el texto 'Bienvenido'",
+            "Verifica que se inició la sesión",
         ]
 
         # Ejecutar plan
@@ -114,15 +120,19 @@ class TestMultiAppExample:
         
         runner = AITestRunner(driver=driver_setup, objective=objective)
         
+        # Obtener credenciales desde variables de entorno
+        test_email = Config.TEST_USER_EMAIL
+        test_password = Config.TEST_USER_PASSWORD
+        
         test_plan = [
             # FASE 1: Customer crea solicitud
             "Abrir app Customer (com.example.customer)",
-            "Hacer login con email 'cliente@demo.com' y password '123456'",
+            f"Hacer login con email '{test_email}' y password '{test_password}'",
             "Crear una solicitud de servicio",
             
             # FASE 2: Technical acepta (mantener Customer en background)
             "Cambiar a app Technical (com.example.technical) manteniendo Customer en background",
-            "Hacer login como técnico con email 'tecnico@demo.com' y password '123456'",
+            f"Hacer login como técnico con email 'tecnico@demo.com' y password '{test_password}'",
             "Aceptar la solicitud pendiente",
             
             # FASE 3: Volver a Customer

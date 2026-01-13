@@ -73,6 +73,10 @@ class Config:
     # MAX_REPEATED_ACTION_ATTEMPTS: Máximo de intentos de la MISMA acción antes de fallar
     # (detecta cuando la IA está atascada repitiendo una acción sin progreso)
     MAX_REPEATED_ACTION_ATTEMPTS: int = int(os.getenv("MAX_REPEATED_ACTION_ATTEMPTS", "3"))
+    
+    # Credenciales de prueba para tests
+    TEST_USER_EMAIL: str = os.getenv("TEST_USER_EMAIL", "cliente@demo.com")
+    TEST_USER_PASSWORD: str = os.getenv("TEST_USER_PASSWORD", "123456")
 
     @classmethod
     def debug_print_config(cls) -> None:

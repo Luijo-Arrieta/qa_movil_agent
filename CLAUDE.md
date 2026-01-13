@@ -117,6 +117,7 @@ tests/
     ├── conftest.py          # E2E fixtures (driver_setup, Allure)
     ├── test_ui_parser_integration.py  # Project integration tests
     └── examples/            # User test examples
+        ├── test_example.py  # ✅ Functional examples using AITestRunner
         └── spec_example.py  # User specs (use spec_*.py prefix)
 ```
 
@@ -127,10 +128,88 @@ tests/
 ## Environment Setup
 
 Copy `.env.example` to `.env.local` and configure:
+
+**Required:**
 - `AI_PROVIDER`: "openai" or "anthropic"
 - `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`
 - `ANDROID_APP_PATH`: Path to APK (recommended) OR `ANDROID_APP_PACKAGE` + `ANDROID_APP_ACTIVITY`
 - `ANDROID_DEVICE_NAME`: Device/emulator ID (check with `adb devices`)
+
+**Optional (for test examples):**
+- `TEST_USER_EMAIL`: Test user email for login tests (default: "cliente@demo.com")
+- `TEST_USER_PASSWORD`: Test user password for login tests (default: "123456")
+
+### Using Test Credentials in Tests
+
+Test credentials can be accessed via `Config` class:
+
+```python
+from src.config import Config
+
+# Get credentials from environment variables
+test_email = Config.TEST_USER_EMAIL
+test_password = Config.TEST_USER_PASSWORD
+
+# Use in test plan
+test_plan = [
+    f"Ingresar usuario '{test_email}'",
+    f"Ingresar password '{test_password}'",
+]
+```
+
+This allows you to change credentials without modifying test code - just update `.env.local`.
+
+## Working Examples
+
+A fully functional example file is available at `tests/specs/examples/test_example.py` demonstrating:
+
+### Example 1: Login Flow with AITestRunner
+
+```python
+from src.test_runner import AITestRunner
+from src.config import Config
+
+def test_login_flow_example(self, driver_setup):
+    objective = "Realizar login en la aplicación con credenciales de prueba"
+    
+    test_email = Config.TEST_USER_EMAIL
+    test_password = Config.TEST_USER_PASSWORD
+    
+    runner = AITestRunner(driver=driver_setup, objective=objective)
+    
+    test_plan = [
+        "Esperar a ver la pantalla de login",
+        f"Ingresar usuario '{test_email}'",
+        f"Ingresar password '{test_password}'",
+        "Tocar botón Ingresar",
+        "Verifica que se inició la sesión",
+    ]
+    
+    success = runner.run_test_plan(test_plan)
+    assert success, "El plan de prueba no se completó exitosamente"
+```
+
+### Example 2: Simple Navigation
+
+```python
+def test_simple_navigation_example(self, driver_setup):
+    runner = AITestRunner(driver=driver_setup)
+    
+    test_plan = [
+        "Abrir el menú principal",
+        "Seleccionar la opción 'Configuración'",
+        "Verificar que se abra la pantalla de configuración",
+    ]
+    
+    success = runner.run_test_plan(test_plan)
+    assert success, "La navegación no se completó exitosamente"
+```
+
+**Key Benefits of AITestRunner:**
+- No need to manually parse UI or write XPath selectors
+- Natural language test plans are easy to read and maintain
+- Automatic retry logic handles transient errors
+- Built-in loop detection prevents infinite retries
 
 ## Pre-requisites for Integration Tests
 
@@ -256,12 +335,18 @@ For tests requiring multiple apps (e.g., Customer ↔ Technical flows):
 ### Multi-App Test Example
 
 ```python
+from src.config import Config
+
+# Get credentials from environment variables
+test_email = Config.TEST_USER_EMAIL
+test_password = Config.TEST_USER_PASSWORD
+
 test_plan = [
     "Abrir app Customer (com.example.customer)",
-    "Hacer login con email 'user@test.com' y password '123456'",
+    f"Hacer login con email '{test_email}' y password '{test_password}'",
     "Crear una solicitud de servicio",
     "Cambiar a app Technical (com.example.technical) manteniendo Customer en background",
-    "Hacer login como técnico",
+    f"Hacer login como técnico con email 'tecnico@demo.com' y password '{test_password}'",
     "Aceptar la solicitud",
     "Volver a app Customer",
     "Verificar que la solicitud fue aceptada",

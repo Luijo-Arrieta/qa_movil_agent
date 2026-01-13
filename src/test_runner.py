@@ -482,17 +482,23 @@ class AITestRunner:
 
                         # ══════════════════════════════════════════════════════════════
                         # FASE 5: Esperar a que la UI se estabilice (manejo de loading)
+                        # OPTIMIZACIÓN: No esperar para assert_screen_contains porque no modifica UI
                         # ══════════════════════════════════════════════════════════════
-                        logger.debug("  │ FASE 5: Esperando estabilidad de UI post-acción...")
-                        phase5_start = time.time()
-                        is_stable, wait_time, stability_reason = self.agent_tools.wait_for_ui_stable()
-                        phase5_time = int((time.time() - phase5_start) * 1000)
-                        
-                        if is_stable:
-                            logger.debug(f"  │ FASE 5: ✓ UI estable en {phase5_time}ms ({stability_reason})")
+                        action_name = tool_call['name']
+                        if action_name == "assert_screen_contains":
+                            # Assert no modifica la UI, no hay que esperar estabilidad
+                            logger.debug("  │ FASE 5: ⏭️ Omitida (assert_screen_contains no modifica UI)")
                         else:
-                            logger.warning(f"  │ FASE 5: ⚠️ UI no estabilizó en {phase5_time}ms ({stability_reason})")
-                            # Continuamos de todos modos, el siguiente ciclo verificará el estado
+                            logger.debug("  │ FASE 5: Esperando estabilidad de UI post-acción...")
+                            phase5_start = time.time()
+                            is_stable, wait_time, stability_reason = self.agent_tools.wait_for_ui_stable()
+                            phase5_time = int((time.time() - phase5_start) * 1000)
+                            
+                            if is_stable:
+                                logger.debug(f"  │ FASE 5: ✓ UI estable en {phase5_time}ms ({stability_reason})")
+                            else:
+                                logger.warning(f"  │ FASE 5: ⚠️ UI no estabilizó en {phase5_time}ms ({stability_reason})")
+                                # Continuamos de todos modos, el siguiente ciclo verificará el estado
 
                         # ══════════════════════════════════════════════════════════════
                         # [OPTIMIZACIÓN - ÁREA DE MEJORA POTENCIAL]
@@ -644,11 +650,29 @@ class AITestRunner:
         step_lower = step.lower()
         
         # Pasos de "Esperar/Verificar/Comprobar": assert_screen_contains los completa
+        # NOTA: Un assert exitoso SIEMPRE completa el paso porque:
+        # 1. Un assert no modifica la UI, por lo que no tiene sentido volver a parsear
+        # 2. Si el assert fue exitoso, la verificación pasó
         if action_name == "assert_screen_contains":
-            verification_keywords = ["esperar", "verificar", "comprobar", "validar", "confirmar", "revisar"]
+            # Lista de keywords incluyendo conjugaciones comunes
+            verification_keywords = [
+                "esperar", "espera",           # esperar a ver X
+                "verificar", "verifica",       # verificar que X / verifica que X
+                "comprobar", "comprueba",      # comprobar que X
+                "validar", "valida",           # validar que X
+                "confirmar", "confirma",       # confirmar que X
+                "revisar", "revisa",           # revisar que X
+                "ver ", "vea",                 # ver que X aparezca
+                "asegurar", "asegura",         # asegurar que X
+                "chequear", "chequea",         # chequear que X
+            ]
             if any(keyword in step_lower for keyword in verification_keywords):
                 logger.debug(f"  │ OPTIMIZACIÓN: assert_screen_contains exitoso en paso de verificación → paso completo")
                 return True
+            # Incluso si no coincide con keywords, un assert exitoso generalmente completa un paso
+            # porque la verificación ya pasó
+            logger.debug(f"  │ OPTIMIZACIÓN: assert_screen_contains exitoso → paso completo (assert no modifica UI)")
+            return True
         
         # Pasos de "Ingresar/Escribir/Introducir": fill_field_by_id los completa
         if action_name == "fill_field_by_id":

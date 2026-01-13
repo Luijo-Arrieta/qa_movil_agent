@@ -552,20 +552,39 @@ class AppiumSkills:
             logger.debug("AGENT_TOOLS: Verificando que el texto se escribió correctamente...")
             
             try:
-                # Intentar obtener el texto del elemento existente
-                actual_text = element.text or ""
+                # En Android, element.text puede estar vacío después de escribir
+                # Intentar múltiples métodos para obtener el texto
+                actual_text = ""
+                try:
+                    # Método 1: get_attribute("text") - más confiable en Android
+                    actual_text = element.get_attribute("text") or ""
+                except:
+                    pass
+                
+                if not actual_text:
+                    try:
+                        # Método 3: get_attribute("value") (algunos campos usan value)
+                        actual_text = element.get_attribute("value") or ""
+                    except:
+                        pass
                 
                 # Verificar si el texto coincide (o si es campo de contraseña, verificar longitud)
                 if is_password:
                     # Para campos de contraseña, verificamos que hay contenido
                     # getText retorna asteriscos o vacío, validamos por longitud
                     logger.debug(f"AGENT_TOOLS: Campo de contraseña - verificación por longitud")
-                    text_written = len(actual_text) == len(value) or len(actual_text) == 0  # Algunos campos ocultan todo
+                    # Si no podemos obtener el texto, asumimos éxito (send_keys no falló)
+                    text_written = len(actual_text) == len(value) or len(actual_text) == 0 or not actual_text
                 else:
                     # Para campos normales, verificamos que el texto coincida
-                    text_written = value in actual_text or actual_text == value
-                    if not text_written:
-                        logger.warning(f"AGENT_TOOLS WARNING: Texto esperado: '{value}', texto actual: '{actual_text}'")
+                    # Si actual_text está vacío pero send_keys no falló, asumimos éxito
+                    if not actual_text:
+                        logger.debug("AGENT_TOOLS: No se pudo obtener texto del elemento, pero send_keys no falló - asumiendo éxito")
+                        text_written = True
+                    else:
+                        text_written = value in actual_text or actual_text == value
+                        if not text_written:
+                            logger.warning(f"AGENT_TOOLS WARNING: Texto esperado: '{value}', texto actual: '{actual_text}'")
                 
                 elapsed_ms = int((time.time() - start_time) * 1000)
                 

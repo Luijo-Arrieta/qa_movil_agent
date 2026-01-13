@@ -73,7 +73,13 @@ appium --use-plugins=all
 Vuelve a la **primera terminal** (donde estás en la carpeta del proyecto) y ejecuta:
 
 ```bash
-# Ejecutar test de integración del proyecto
+# Ejecutar ejemplo funcional con AITestRunner (recomendado para empezar)
+poetry run pytest tests/specs/examples/test_example.py::TestAIAgentExample::test_login_flow_example -v
+
+# O ejecutar todos los ejemplos funcionales
+poetry run pytest tests/specs/examples/test_example.py -v
+
+# O ejecutar test de integración del proyecto
 poetry run pytest tests/specs/test_ui_parser_integration.py::TestUIParserIntegration::test_parse_login_screen_from_real_app -v
 
 # O ejecutar todos los tests de specs
