@@ -245,44 +245,50 @@ def driver_setup():
             logger.info("CONFTEST: FASE FINAL - Limpiando y cerrando...")
             
             # Resetear storage de la app para que el siguiente test comience limpio
-            # IMPORTANTE: driver.reset() resetea la app y limpia todos los datos
-            # (SharedPreferences, SQLite, cache, etc.) para que el siguiente test
-            # comience desde un estado limpio
+            # IMPORTANTE: Limpia todos los datos (SharedPreferences, SQLite, cache, etc.)
+            # para que cada test comience desde un estado limpio
             try:
-                logger.info("CONFTEST: 🔄 Reseteando storage de la app...")
+                logger.info("CONFTEST: Reseteando storage de la app...")
                 app_package = Config.ANDROID_APP_PACKAGE
+                device_udid = Config.ANDROID_UDID or Config.ANDROID_DEVICE_NAME
+                
                 if app_package:
-                    # driver.reset() resetea completamente la app y limpia todos los datos
-                    # Esto asegura que cada test comience desde un estado limpio
-                    driver.reset()
-                    logger.info(f"CONFTEST: ✓ Storage reseteado para: {app_package}")
-                else:
-                    # Si no hay package configurado, intentar resetear de todas formas
-                    # (puede funcionar si la app ya está abierta)
-                    logger.warning("CONFTEST: ⚠ ANDROID_APP_PACKAGE no configurado, intentando resetear de todas formas...")
+                    # Usar ADB para limpiar el storage de la app
+                    # Esto es más confiable que driver.reset() que no existe en Appium
+                    import subprocess
                     try:
-                        driver.reset()
-                        logger.info("CONFTEST: ✓ Storage reseteado (sin package específico)")
-                    except Exception:
-                        logger.warning("CONFTEST: ⚠ No se pudo resetear storage sin package configurado")
+                        # Comando: adb -s <device> shell pm clear <package>
+                        cmd = ["adb", "-s", device_udid, "shell", "pm", "clear", app_package]
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        
+                        if result.returncode == 0:
+                            logger.info(f"CONFTEST: Storage reseteado para: {app_package}")
+                        else:
+                            logger.warning(f"CONFTEST: Error al resetear storage: {result.stderr}")
+                    except subprocess.TimeoutExpired:
+                        logger.warning("CONFTEST: Timeout al resetear storage")
+                    except FileNotFoundError:
+                        logger.warning("CONFTEST: ADB no encontrado en PATH, no se puede resetear storage")
+                    except Exception as e:
+                        logger.warning(f"CONFTEST: Error ejecutando ADB: {e}")
+                else:
+                    logger.warning("CONFTEST: ANDROID_APP_PACKAGE no configurado, no se puede resetear storage")
             except Exception as e:
                 logger.warning(f"CONFTEST WARNING: Error al resetear storage: {e}")
                 logger.debug(f"CONFTEST: Traceback:\n{traceback.format_exc()}")
                 # Continuar con el cierre del driver aunque falle el reset
             
             # Cerrar driver
-            # NOTA: driver.reset() puede haber cerrado la sesión, así que quit() puede fallar
-            # pero eso está bien, lo importante es que el storage ya fue reseteado
             try:
-                # Verificar si la sesión aún está activa antes de intentar cerrar
-                try:
-                    session_id = driver.session_id
-                    logger.info(f"CONFTEST: 🔒 Cerrando session: {session_id}")
-                    driver.quit()
-                    logger.info("CONFTEST: ✓ Driver cerrado correctamente")
-                except Exception:
-                    # La sesión ya fue cerrada por reset(), esto es normal
-                    logger.debug("CONFTEST: Session ya cerrada (probablemente por reset())")
+                session_id = driver.session_id
+                logger.info(f"CONFTEST: Cerrando session: {session_id}")
+                driver.quit()
+                logger.info("CONFTEST: Driver cerrado correctamente")
             except Exception as e:
                 logger.warning(f"CONFTEST WARNING: Error al cerrar driver: {e}")
                 logger.debug(f"CONFTEST: Traceback:\n{traceback.format_exc()}")
