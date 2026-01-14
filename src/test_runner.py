@@ -21,6 +21,13 @@ from src.agent_tools import AppiumSkills
 from src.ai_orchestrator import AIOrchestrator
 from src.config import Config
 
+# Importar Allure de forma opcional (solo disponible en tests)
+try:
+    import allure
+    ALLURE_AVAILABLE = True
+except ImportError:
+    ALLURE_AVAILABLE = False
+
 # Importar excepciones de Selenium/Appium para identificar errores recuperables
 try:
     from selenium.common.exceptions import (
@@ -271,6 +278,9 @@ class AITestRunner:
         logger.info("█" * 80)
         logger.info(f"TEST_RUNNER: Tiempo total de ejecución: {plan_elapsed:.2f}s")
         
+        # Capturar screenshot final automáticamente para Allure
+        self._capture_final_screenshot()
+        
         self._print_execution_summary(plan_start_time)
         return True
     
@@ -303,6 +313,27 @@ class AITestRunner:
         # DEBUG: Dump del mapeo de elementos (solo en nivel DEBUG)
         logger.debug("TEST_RUNNER: UIParser element map dump:")
         self.ui_parser.debug_dump_element_map(log_output=False)  # Solo retorna, no duplica logs
+
+    def _capture_final_screenshot(self) -> None:
+        """
+        Captura un screenshot final automáticamente y lo adjunta a Allure.
+        Se ejecuta después de completar exitosamente todos los pasos del plan.
+        """
+        if not ALLURE_AVAILABLE:
+            logger.debug("TEST_RUNNER: Allure no disponible, omitiendo screenshot final")
+            return
+        
+        try:
+            logger.info("TEST_RUNNER: Capturando screenshot final para Allure...")
+            screenshot = self.driver.get_screenshot_as_png()
+            allure.attach(
+                screenshot,
+                name="Final - Estado después de completar todos los pasos",
+                attachment_type=allure.attachment_type.PNG
+            )
+            logger.info("TEST_RUNNER: ✓ Screenshot final adjuntado a Allure")
+        except Exception as e:
+            logger.warning(f"TEST_RUNNER: No se pudo capturar screenshot final: {e}")
 
     def _execute_step(self, step: str, step_index: int) -> bool:
         """

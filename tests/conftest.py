@@ -22,6 +22,32 @@ import pytest
 LOGS_DIR = Path(__file__).parent.parent / "reports" / "logs"
 
 
+class SafeFileHandler(logging.FileHandler):
+    """
+    Handler de logging que ignora errores cuando el archivo está cerrado.
+    Esto previene errores cuando objetos intentan escribir logs después
+    de que pytest ya cerró los handlers (ej: destructores de httpx/openai).
+    También maneja correctamente el encoding UTF-8 para emojis y caracteres especiales.
+    """
+    def emit(self, record):
+        try:
+            # Verificar si el stream está disponible y abierto
+            if self.stream is None or self.stream.closed:
+                return
+            
+            # Usar el método padre que ya maneja el encoding correctamente
+            super().emit(record)
+        except (ValueError, OSError, UnicodeEncodeError, AttributeError, RuntimeError):
+            # Ignorar errores de I/O cuando el archivo está cerrado
+            # o problemas de encoding, o cuando el stream no está disponible
+            # RuntimeError puede ocurrir cuando el handler está siendo cerrado
+            pass
+        except Exception:
+            # Capturar cualquier otro error inesperado para evitar que se propague
+            # Esto previene que errores de logging rompan la ejecución del test
+            pass
+
+
 def _setup_file_logging():
     """
     Configura logging a archivo con timestamp.
@@ -44,10 +70,13 @@ def _setup_file_logging():
     root_logger.setLevel(logging.DEBUG)
     
     # Crear handler para archivo con encoding UTF-8
-    file_handler = logging.FileHandler(
+    # Usar SafeFileHandler para ignorar errores cuando el archivo está cerrado
+    # y manejar correctamente emojis y caracteres especiales
+    file_handler = SafeFileHandler(
         log_filepath, 
         mode='w', 
-        encoding='utf-8'
+        encoding='utf-8',
+        errors='replace'  # Reemplazar caracteres problemáticos en lugar de fallar
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(
@@ -84,6 +113,22 @@ logging.basicConfig(
 logging.getLogger("selenium.webdriver.remote.remote_connection").setLevel(logging.WARNING)
 logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 
+# Silenciar loggers de httpcore/httpx que intentan escribir después del cierre
+# Estos loggers causan errores cuando intentan escribir después de que pytest cierra los handlers
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore.trace").setLevel(logging.WARNING)
+logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
+logging.getLogger("httpcore.connection_pool").setLevel(logging.WARNING)
+
+# Silenciar loggers de httpcore/httpx que intentan escribir después del cierre
+# Estos loggers causan errores cuando intentan escribir después de que pytest cierra los handlers
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore.trace").setLevel(logging.WARNING)
+logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
+logging.getLogger("httpcore.connection_pool").setLevel(logging.WARNING)
+
 
 def pytest_configure(config):
     """
@@ -116,13 +161,38 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
-    """Log al finalizar la sesión de pytest."""
+    """
+    Log al finalizar la sesión de pytest.
+    Los handlers se cierran automáticamente al salir del proceso.
+    SafeFileHandler ignora errores si objetos intentan escribir después.
+    """
+    # Silenciar completamente los loggers problemáticos antes de cerrar
+    # Esto previene que intenten escribir después del cierre
+    problem_loggers = [
+        "httpcore",
+        "httpx", 
+        "httpcore.trace",
+        "httpcore.connection",
+        "httpcore.connection_pool",
+        "openai",
+    ]
+    for logger_name in problem_loggers:
+        logger_obj = logging.getLogger(logger_name)
+        logger_obj.setLevel(logging.CRITICAL)  # Solo errores críticos
+        logger_obj.disabled = True  # Deshabilitar completamente
+    
     logger = logging.getLogger(__name__)
-    logger.info("=" * 70)
-    logger.info("PYTEST SESSION FINISHED")
-    if _current_log_file:
-        logger.info(f"Log saved to: {_current_log_file}")
-    logger.info("=" * 70)
+    try:
+        logger.info("=" * 70)
+        logger.info("PYTEST SESSION FINISHED")
+        if _current_log_file:
+            logger.info(f"Log saved to: {_current_log_file}")
+        logger.info("=" * 70)
+    except Exception:
+        pass  # Ignorar errores si el handler ya está cerrado
+    
+    # Los handlers se cerrarán automáticamente cuando el proceso termine
+    # SafeFileHandler previene errores si objetos intentan escribir después
 
 
 @pytest.fixture(scope="session")
