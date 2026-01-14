@@ -49,7 +49,7 @@ class TestAgentToolsMultiApp:
         6. Verificar tracking de app actual
         
         Ejecutar solo este test:
-        poetry run pytest tests/specs/test_agent_tools_integration.py::TestAgentToolsMultiApp::test_all_multi_app_tools_deterministic -v -s
+        poetry run pytest tests/specs/unit_test_agent_tools_integration.py::TestAgentToolsMultiApp::test_all_multi_app_tools_deterministic -v -s
         """
         logger.info("")
         logger.info("=" * 80)
@@ -279,7 +279,7 @@ class TestAgentToolsMultiApp:
         Prueba un flujo simple: abrir Settings, verificar, volver a la app principal.
         
         Ejecutar solo este test:
-        poetry run pytest tests/specs/test_agent_tools_integration.py::TestAgentToolsMultiApp::test_multi_app_tools_with_ai -v -s
+        poetry run pytest tests/specs/unit_test_agent_tools_integration.py::TestAgentToolsMultiApp::test_multi_app_tools_with_ai -v -s
         """
         from src.test_runner import AITestRunner
         
