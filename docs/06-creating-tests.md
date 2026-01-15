@@ -151,6 +151,34 @@ cat tests/specs/examples/test_example.py
 poetry run pytest tests/specs/examples/test_example.py -v
 ```
 
+### Ejemplo: Escribir un Test desde una Historia de Usuario (AC-001)
+
+Supongamos la siguiente historia de usuario:
+
+> **AC-001**: Como usuario de la plataforma debo poder iniciar sesión en la APP como cliente y poder cerrar sesión correctamente.
+
+Para convertirla en un test usando `AITestRunner`:
+
+- **1. Define el objetivo del test**:
+  - Usa una cadena que resuma la historia y mencione el ID:
+  - `objective = "Validar historia de usuario AC-001: inicio y cierre de sesión en la app de cliente..."`
+- **2. Usa credenciales de prueba desde `Config`**:
+  - `test_email = Config.TEST_USER_EMAIL`
+  - `test_password = Config.TEST_USER_PASSWORD`
+- **3. Crea un `test_plan` de happy-path** (un paso → una acción/verificación):
+  - Abrir la app de cliente usando `activate_app` con el paquete configurado (la app no se abre sola).
+  - Esperar a ver la pantalla de inicio de sesión.
+  - Ingresar el correo válido del cliente en el campo de correo.
+  - Ingresar la contraseña válida en el campo de contraseña.
+  - Tocar el botón de iniciar sesión.
+  - Verificar que se muestra la pantalla principal del cliente (login exitoso).
+  - Abrir el menú de cuenta o perfil.
+  - Seleccionar la opción de cerrar sesión.
+  - Confirmar el cierre de sesión si aparece un diálogo.
+  - Verificar que la app regresa a la pantalla de inicio de sesión.
+
+Este flujo está implementado como ejemplo completo en `tests/specs/spec_login_logout.py` (`TestLoginLogoutSpec::test_login_and_logout_cliente_ac001`). A partir de este patrón puedes crear otros specs para historias como "recuperar contraseña", "actualizar perfil", etc., siempre empezando por el happy-path y luego añadiendo tests separados para validaciones y errores.
+
 ---
 
 ## Método 2: Usando UIParser (Avanzado)

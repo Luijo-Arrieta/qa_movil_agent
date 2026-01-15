@@ -165,6 +165,38 @@ A fully functional example file is available at `tests/specs/examples/test_examp
 
 **Important (tests docstrings):** After creating any new test file or test class, add in the leading docstring a short section describing how to execute it with `pytest` (running the whole file, a specific test class and an individual test, e.g. `poetry run pytest tests/specs/test_example.py::TestClass::test_name -v`). Esto ayuda a que otros usuarios (y los agentes de IA) sepan rápidamente cómo ejecutar y depurar ese test.
 
+## Escribir Specs a partir de Historias de Usuario (Ejemplo AC-001)
+
+Cuando recibas una historia de usuario con criterios de aceptación, debes transformarla en un **plan de prueba en lenguaje natural** para `AITestRunner`.
+
+**Historia de usuario AC-001 (resumen):**
+- "Como usuario de la plataforma debo poder iniciar sesión en la APP como cliente y poder cerrar sesión correctamente."
+
+**Cómo se mapeó a un spec:**
+- Archivo de test: `tests/specs/spec_login_logout.py`
+- Clase: `TestLoginLogoutSpec` (representa la capacidad de login + logout del cliente)
+- Objetivo del test (`objective`): resume la historia y referencia explícitamente el ID:
+  - `"Validar historia de usuario AC-001: inicio y cierre de sesión en la app de cliente verificando campos obligatorios, formato de correo y manejo de credenciales inválidas."`
+- Plan de prueba (`test_plan`): lista ordenada de pasos de alto nivel, cada uno pensado para provocar **una única herramienta** en el agente:
+  - Abrir explícitamente la app de cliente usando `activate_app` con el paquete correspondiente (la app no se abre automáticamente).
+  - Esperar a ver la pantalla de inicio de sesión.
+  - Ingresar el correo de prueba (`Config.TEST_USER_EMAIL`) en el campo de correo.
+  - Ingresar la contraseña de prueba (`Config.TEST_USER_PASSWORD`) en el campo de contraseña.
+  - Tocar el botón de iniciar sesión.
+  - Verificar que se muestra la pantalla principal del cliente (sesión iniciada).
+  - Abrir el menú de cuenta/perfil.
+  - Seleccionar la opción de cerrar sesión.
+  - Confirmar el cierre de sesión si aparece un diálogo.
+  - Verificar que se regresa a la pantalla de login.
+
+**Buenas prácticas al crear nuevos specs desde historias de usuario:**
+- **Empieza con el happy-path**: crea primero un test que solo cubra el flujo exitoso principal de la historia.
+- Usa siempre:
+  - Un `objective` claro que nombre la historia (ej. "AC-001").
+  - Datos de prueba provenientes de `Config` (no credenciales hardcodeadas).
+  - Un `test_plan` con pasos cortos, cada uno describiendo una única acción o verificación.
+- Crea **tests adicionales** para criterios negativos (validaciones, errores, formatos inválidos) en archivos o métodos separados, para mantener cada spec simple y fácil de depurar.
+
 ### Example 1: Login Flow with AITestRunner
 
 ```python
