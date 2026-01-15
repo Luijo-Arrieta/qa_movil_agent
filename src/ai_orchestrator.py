@@ -358,7 +358,7 @@ class AIOrchestrator:
             )
 
         context_str = "\n".join(parts)
-        logger.debug(f"AI_ORCHESTRATOR: Contexto generado: {context_str}")
+        logger.debug(f"AI_ORCHESTRATOR: Contexto generado: \n\n{context_str}")
 
         return context_str
 
