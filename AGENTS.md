@@ -109,14 +109,14 @@ poetry run pytest
 # Run only unit tests (fast, no Appium needed)
 poetry run pytest tests/unit -v
 
-# Run only E2E/Spec tests (requires Appium + device)
+# Run only integration tests (requires Appium + device)
+poetry run pytest tests/integration -v
+
+# Run only user specs (requires Appium + device + user app)
 poetry run pytest tests/specs -v
 
 # Run only user specs (spec_*.py files)
 poetry run pytest tests/specs/spec_*.py -v
-
-# Run only project tests (test_*.py files)
-poetry run pytest tests/unit/test_*.py -v
 
 # Run with verbose output
 poetry run pytest -v
@@ -137,9 +137,12 @@ tests/
 │   ├── test_agent_tools.py  # AppiumSkills unit tests (mocked driver)
 │   ├── test_ai_orchestrator.py  # AIOrchestrator unit tests (mocked LLM APIs)
 │   └── test_test_runner.py  # AITestRunner unit tests (mocked components)
-└── specs/                   # E2E tests (require Appium + device)
+├── integration/             # Framework integration tests (require Appium + device)
+│   ├── conftest.py          # Integration test fixtures (driver_setup, Allure)
+│   ├── test_ui_parser_integration.py  # UIParser integration tests
+│   └── test_agent_tools_integration.py  # Agent Tools integration tests
+└── specs/                   # User tests (require Appium + device + user app)
     ├── conftest.py          # E2E fixtures (driver_setup, Allure)
-    ├── test_ui_parser_integration.py  # Project integration tests
     └── examples/            # User test examples
         ├── test_example.py  # ✅ Functional examples using AITestRunner
         └── spec_example.py  # User specs (use spec_*.py prefix)
@@ -186,6 +189,39 @@ This allows you to change credentials without modifying test code - just update 
 ## Working Examples
 
 A fully functional example file is available at `tests/specs/examples/test_example.py` demonstrating:
+
+**Important (tests docstrings):** After creating any new test file or test class, add in the leading docstring a short section describing how to execute it with `pytest` (running the whole file, a specific test class and an individual test, e.g. `poetry run pytest tests/specs/test_example.py::TestClass::test_name -v`). Esto ayuda a que otros usuarios (y los agentes de IA) sepan rápidamente cómo ejecutar y depurar ese test.
+
+## Writing Specs from User Stories (Example AC-001)
+
+When you receive a user story with acceptance criteria, write specs as **natural-language plans** for `AITestRunner`.
+
+**Example user story (AC-001):**
+- "Como usuario de la plataforma debo poder iniciar sesión en la APP como cliente y poder cerrar sesión correctamente."
+
+**How it was mapped to a spec:**
+- Test file: `tests/specs/spec_login_logout.py`
+- Class: `TestLoginLogoutSpec` (describes the business capability: login + logout)
+- Objective: human-readable summary of the story and its ACs:
+  - `objective = "Validar historia de usuario AC-001: inicio y cierre de sesión en la app de cliente verificando campos obligatorios, formato de correo y manejo de credenciales inválidas."`
+- Test plan (`test_plan`): sequence of **one action or verification per step** in Spanish, aligned with the story:
+  - Open the app explicitly using `activate_app` (the driver does not open the app by default)
+  - Wait for the login screen
+  - Fill email using `Config.TEST_USER_EMAIL`
+  - Fill password using `Config.TEST_USER_PASSWORD`
+  - Tap the login button
+  - Verify that the main/home screen is visible (session started)
+  - Open the account/profile menu
+  - Tap logout
+  - Verify that the login screen is shown again
+
+**Guidelines for agents when creating new specs from stories:**
+- Start from the **happy-path** AC and write a single test that:
+  - Has a clear objective string referencing the story ID (e.g. "AC-001")
+  - Uses `Config` for test data instead of hard-coding credentials
+  - Includes app activation as the first step when needed
+  - Keeps each step focused on **one tool call** (fill, tap, assert, etc.)
+- Add **separate specs** for negative/validation ACs (invalid formats, missing required fields, wrong credentials) to keep each test focused and easier to debug.
 
 ### Example 1: Login Flow with AITestRunner
 
