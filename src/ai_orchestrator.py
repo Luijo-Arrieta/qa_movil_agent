@@ -342,8 +342,7 @@ class AIOrchestrator:
         # ------------------------------------------------------------------
         # BLOQUE 4: Elementos disponibles en la pantalla (TOON)
         # ------------------------------------------------------------------
-        parts.append("[Elementos en pantalla (TOON)]")
-        parts.append("Elementos disponibles en la pantalla (formato TOON):")
+        parts.append("[Elementos disponibles en la pantalla (formato TOON)]\n")
         if not ui_elements:
             parts.append("  (No hay elementos interactuables visibles)")
         else:
