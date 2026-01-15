@@ -357,7 +357,10 @@ class AIOrchestrator:
                 len(toon_elements),
             )
 
-        return "\n".join(parts)
+        context_str = "\n".join(parts)
+        logger.debug(f"AI_ORCHESTRATOR: Contexto generado: {context_str}")
+
+        return context_str
 
     def _build_context(
         self,
