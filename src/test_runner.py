@@ -18,7 +18,7 @@ from appium.webdriver import Remote
 
 from src.ui_parser import UIParser
 from src.agent_tools import AppiumSkills
-from src.ai_orchestrator import AIOrchestrator
+from src.ai_orchestrator import AIOrchestrator, StepContext
 from src.config import Config
 
 # Importar Allure de forma opcional (solo disponible en tests)
@@ -188,6 +188,8 @@ class AITestRunner:
         self.ai_orchestrator = AIOrchestrator()
         logger.debug("TEST_RUNNER: ✓ AIOrchestrator creado")
         
+        # Contexto global del agente para el paso actual
+        self.current_context: Optional[StepContext] = None
         self.action_history: List[str] = []
         self.max_retries = Config.MAX_RETRIES_PER_STEP
         
@@ -244,7 +246,17 @@ class AITestRunner:
             logger.info("═" * 80)
             logger.info(f"TEST_RUNNER: Iniciando paso {step_index} a las {step_start_time.strftime('%H:%M:%S.%f')[:-3]}")
 
-            success = self._execute_step(step, step_index)
+            # Calcular previous_step / next_step para el contexto del plan
+            previous_step = test_plan[step_index - 2] if step_index > 1 else None
+            next_step = test_plan[step_index] if step_index < len(test_plan) else None
+
+            success = self._execute_step(
+                step=step,
+                step_index=step_index,
+                total_steps=len(test_plan),
+                previous_step=previous_step,
+                next_step=next_step,
+            )
             
             step_elapsed = (datetime.now() - step_start_time).total_seconds()
 
@@ -335,7 +347,14 @@ class AITestRunner:
         except Exception as e:
             logger.warning(f"TEST_RUNNER: No se pudo capturar screenshot final: {e}")
 
-    def _execute_step(self, step: str, step_index: int) -> bool:
+    def _execute_step(
+        self,
+        step: str,
+        step_index: int,
+        total_steps: int,
+        previous_step: Optional[str],
+        next_step: Optional[str],
+    ) -> bool:
         """
         Ejecuta un paso individual con sistema de reintentos y loop agéntico.
 
@@ -346,7 +365,10 @@ class AITestRunner:
 
         Args:
             step: Descripción del paso en lenguaje natural
-            step_index: Índice del paso (para logging)
+            step_index: Índice del paso (para logging, 1-based)
+            total_steps: Número total de pasos del plan
+            previous_step: Paso anterior (o None si es el primero)
+            next_step: Próximo paso (o None si es el último)
 
         Returns:
             True si el paso se completó exitosamente, False en caso contrario
@@ -427,11 +449,40 @@ class AITestRunner:
                     phase3_start = time.time()
                     self._execution_stats["total_ai_calls"] += 1
                     try:
+                        # Construir StepContext rico para este ciclo del loop agéntico
+                        try:
+                            app_states = {}
+                            get_states = getattr(self.agent_tools, "get_tracked_app_states", None)
+                            if callable(get_states):
+                                app_states = get_states() or {}
+                        except Exception as e:
+                            logger.warning(
+                                "TEST_RUNNER: No se pudo obtener estados de apps desde AppiumSkills: %s",
+                                e,
+                            )
+                            app_states = {}
+
+                        recent_actions = [
+                            {"index": idx, "text": text}
+                            for idx, text in enumerate(self.action_history[-5:], 1)
+                        ]
+
+                        step_context = StepContext(
+                            objective=self.objective,
+                            step_index=step_index,
+                            total_steps=total_steps,
+                            current_step=step,
+                            next_step=next_step,
+                            previous_step=previous_step,
+                            action_history=recent_actions,
+                            ui_elements=ui_elements,
+                            app_states=app_states,
+                        )
+                        self.current_context = step_context
+
                         ai_decision = self.ai_orchestrator.decide_next_action(
                             ui_elements=ui_elements,
-                            current_step=step,
-                            action_history=self.action_history[-5:],  # Últimas 5 acciones
-                            objective=self.objective,
+                            context=step_context,
                         )
                         phase3_time = int((time.time() - phase3_start) * 1000)
                         logger.info(f"  │ FASE 3: ✓ Decisión de IA recibida en {phase3_time}ms")

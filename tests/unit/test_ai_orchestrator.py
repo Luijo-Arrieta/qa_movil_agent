@@ -560,15 +560,25 @@ class TestDecideNextAction:
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai_class.return_value = mock_client
 
-        from src.ai_orchestrator import AIOrchestrator
+        from src.ai_orchestrator import AIOrchestrator, StepContext
         orchestrator = AIOrchestrator()
 
         ui_elements = [{"id": 0, "role": "button", "label": "Login", "checked": None}]
+        context = StepContext(
+            objective="Probar scroll",
+            step_index=1,
+            total_steps=1,
+            current_step="Hacer scroll",
+            next_step=None,
+            previous_step=None,
+            action_history=[],
+            ui_elements=ui_elements,
+            app_states={},
+        )
+
         result = orchestrator.decide_next_action(
             ui_elements=ui_elements,
-            current_step="Hacer scroll",
-            action_history=[],
-            objective="Probar scroll",
+            context=context,
         )
 
         assert result["tool_calls"][0]["name"] == "scroll"
@@ -598,15 +608,25 @@ class TestDecideNextAction:
         mock_client.messages.create.return_value = mock_message
         mock_anthropic_class.return_value = mock_client
 
-        from src.ai_orchestrator import AIOrchestrator
+        from src.ai_orchestrator import AIOrchestrator, StepContext
         orchestrator = AIOrchestrator()
 
         ui_elements = []
+        context = StepContext(
+            objective=None,
+            step_index=1,
+            total_steps=1,
+            current_step="Volver atrás",
+            next_step=None,
+            previous_step=None,
+            action_history=[{"index": 1, "text": "Acción previa"}],
+            ui_elements=ui_elements,
+            app_states={},
+        )
+
         result = orchestrator.decide_next_action(
             ui_elements=ui_elements,
-            current_step="Volver atrás",
-            action_history=["Acción previa"],
-            objective=None,
+            context=context,
         )
 
         assert result["tool_calls"][0]["name"] == "go_back"
@@ -643,15 +663,25 @@ class TestDecideNextAction:
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai_class.return_value = mock_client
 
-        from src.ai_orchestrator import AIOrchestrator
+        from src.ai_orchestrator import AIOrchestrator, StepContext
         orchestrator = AIOrchestrator()
 
         ui_elements = [{"id": 1, "role": "input", "label": "Email", "checked": None}]
+        context = StepContext(
+            objective="Probar login",
+            step_index=1,
+            total_steps=1,
+            current_step="Ingresar email",
+            next_step=None,
+            previous_step=None,
+            action_history=[],
+            ui_elements=ui_elements,
+            app_states={},
+        )
+
         result = orchestrator.decide_next_action(
             ui_elements=ui_elements,
-            current_step="Ingresar email",
-            action_history=[],
-            objective="Probar login",
+            context=context,
         )
 
         assert result["tool_calls"][0]["name"] == "fill_field_by_id"
@@ -689,12 +719,35 @@ class TestDecideNextAction:
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai_class.return_value = mock_client
 
-        from src.ai_orchestrator import AIOrchestrator
+        from src.ai_orchestrator import AIOrchestrator, StepContext
         orchestrator = AIOrchestrator()
 
-        # Hacer varias llamadas
-        orchestrator.decide_next_action([], "paso 1", [], None)
-        orchestrator.decide_next_action([], "paso 2", [], None)
+        # Hacer varias llamadas con StepContext mínimo
+        ctx1 = StepContext(
+            objective=None,
+            step_index=1,
+            total_steps=2,
+            current_step="paso 1",
+            next_step="paso 2",
+            previous_step=None,
+            action_history=[],
+            ui_elements=[],
+            app_states={},
+        )
+        ctx2 = StepContext(
+            objective=None,
+            step_index=2,
+            total_steps=2,
+            current_step="paso 2",
+            next_step=None,
+            previous_step="paso 1",
+            action_history=[],
+            ui_elements=[],
+            app_states={},
+        )
+
+        orchestrator.decide_next_action([], ctx1)
+        orchestrator.decide_next_action([], ctx2)
 
         stats = orchestrator.get_stats()
         assert stats["total_calls"] == 2
