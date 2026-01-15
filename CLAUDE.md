@@ -163,6 +163,8 @@ This allows you to change credentials without modifying test code - just update 
 
 A fully functional example file is available at `tests/specs/examples/test_example.py` demonstrating:
 
+**Important (tests docstrings):** After creating any new test file or test class, add in the leading docstring a short section describing how to execute it with `pytest` (running the whole file, a specific test class and an individual test, e.g. `poetry run pytest tests/specs/test_example.py::TestClass::test_name -v`). Esto ayuda a que otros usuarios (y los agentes de IA) sepan rápidamente cómo ejecutar y depurar ese test.
+
 ### Example 1: Login Flow with AITestRunner
 
 ```python

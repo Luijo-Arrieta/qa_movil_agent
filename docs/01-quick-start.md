@@ -99,8 +99,9 @@ tests/specs/test_ui_parser_integration.py::TestUIParserIntegration::test_parse_l
 Genera el reporte visual ejecutando:
 
 ```bash
-poetry run python scripts/generate_report.py
+allure serve reports/allure-results
 ```
+
 
 Luego abre el archivo `reports/allure-report.html` en tu navegador. Verás:
 

@@ -109,14 +109,14 @@ poetry run pytest
 # Run only unit tests (fast, no Appium needed)
 poetry run pytest tests/unit -v
 
-# Run only E2E/Spec tests (requires Appium + device)
+# Run only integration tests (requires Appium + device)
+poetry run pytest tests/integration -v
+
+# Run only user specs (requires Appium + device + user app)
 poetry run pytest tests/specs -v
 
 # Run only user specs (spec_*.py files)
 poetry run pytest tests/specs/spec_*.py -v
-
-# Run only project tests (test_*.py files)
-poetry run pytest tests/unit/test_*.py -v
 
 # Run with verbose output
 poetry run pytest -v
@@ -137,9 +137,12 @@ tests/
 │   ├── test_agent_tools.py  # AppiumSkills unit tests (mocked driver)
 │   ├── test_ai_orchestrator.py  # AIOrchestrator unit tests (mocked LLM APIs)
 │   └── test_test_runner.py  # AITestRunner unit tests (mocked components)
-└── specs/                   # E2E tests (require Appium + device)
+├── integration/             # Framework integration tests (require Appium + device)
+│   ├── conftest.py          # Integration test fixtures (driver_setup, Allure)
+│   ├── test_ui_parser_integration.py  # UIParser integration tests
+│   └── test_agent_tools_integration.py  # Agent Tools integration tests
+└── specs/                   # User tests (require Appium + device + user app)
     ├── conftest.py          # E2E fixtures (driver_setup, Allure)
-    ├── test_ui_parser_integration.py  # Project integration tests
     └── examples/            # User test examples
         ├── test_example.py  # ✅ Functional examples using AITestRunner
         └── spec_example.py  # User specs (use spec_*.py prefix)
@@ -186,6 +189,8 @@ This allows you to change credentials without modifying test code - just update 
 ## Working Examples
 
 A fully functional example file is available at `tests/specs/examples/test_example.py` demonstrating:
+
+**Important (tests docstrings):** After creating any new test file or test class, add in the leading docstring a short section describing how to execute it with `pytest` (running the whole file, a specific test class and an individual test, e.g. `poetry run pytest tests/specs/test_example.py::TestClass::test_name -v`). Esto ayuda a que otros usuarios (y los agentes de IA) sepan rápidamente cómo ejecutar y depurar ese test.
 
 ### Example 1: Login Flow with AITestRunner
 
