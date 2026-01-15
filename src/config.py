@@ -237,22 +237,9 @@ class Config:
             capabilities["appium:udid"] = cls.ANDROID_DEVICE_NAME
             #logger.debug(f"CONFIG: Usando deviceName como UDID: {cls.ANDROID_DEVICE_NAME}")
 
-        # Agregar ruta del APK si está configurada (prioridad sobre package/activity)
-        if cls.ANDROID_APP_PATH:
-            capabilities["appium:app"] = cls.ANDROID_APP_PATH
-            #logger.debug(f"CONFIG: Usando APK path: {cls.ANDROID_APP_PATH}")
-            # Verificar si el archivo existe
-            import os as os_check
-            if not os_check.path.exists(cls.ANDROID_APP_PATH):
-                logger.warning(f"CONFIG WARNING: El archivo APK no existe: {cls.ANDROID_APP_PATH}")
-
-        # Agregar app package y activity si están configurados
-        if cls.ANDROID_APP_PACKAGE:
-            capabilities["appium:appPackage"] = cls.ANDROID_APP_PACKAGE
-            #logger.debug(f"CONFIG: App package: {cls.ANDROID_APP_PACKAGE}")
-        if cls.ANDROID_APP_ACTIVITY:
-            capabilities["appium:appActivity"] = cls.ANDROID_APP_ACTIVITY
-            #logger.debug(f"CONFIG: App activity: {cls.ANDROID_APP_ACTIVITY}")
+        # NOTA: NO agregar appPackage, appActivity, o app a capabilities.
+        # El driver se crea sin abrir ninguna app automáticamente.
+        # El usuario final debe usar activate_app() de agent_tools.py para abrir la app que necesite.
 
         # Agregar capabilities opcionales para mejor compatibilidad
         capabilities["appium:autoGrantPermissions"] = cls.ANDROID_AUTO_GRANT_PERMISSIONS

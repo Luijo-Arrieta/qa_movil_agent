@@ -19,7 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from src.ui_parser import UIParser
-from tests.specs.conftest import allure_attach_debug_snapshot, allure_attach_screenshot
+from tests.conftest import allure_attach_debug_snapshot, allure_attach_screenshot
 
 
 logger = logging.getLogger(__name__)
@@ -411,7 +411,7 @@ class TestUIParserIntegration:
         - TOON que le llega a la IA (formato eficiente)
         
         Ejecutar solo este test:
-        poetry run pytest tests/specs/unit_test_ui_parser_integration.py::TestUIParserIntegration::test_ai_parser_debug -v -s
+        poetry run pytest tests/integration/test_ui_parser_integration.py::TestUIParserIntegration::test_ai_parser_debug -v -s
         """
         logger.info("")
         logger.info("=" * 80)
@@ -601,7 +601,7 @@ class TestUIParserIntegration:
         7. Hacer click en botón login (ID 6)
         
         Ejecutar solo este test:
-        poetry run pytest tests/specs/unit_test_ui_parser_integration.py::TestUIParserIntegration::test_fill_field_without_ai -v -s
+        poetry run pytest tests/integration/test_ui_parser_integration.py::TestUIParserIntegration::test_fill_field_without_ai -v -s
         """
         from src.agent_tools import AppiumSkills
         from src.ui_parser import UIParser
