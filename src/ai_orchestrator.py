@@ -590,7 +590,7 @@ class AIOrchestrator:
                 messages=messages,
                 tools=tools,
                 tool_choice="auto",
-                temperature=0.3,  # Baja temperatura para decisiones más determinísticas
+                temperature=0.2,  # Baja temperatura para decisiones más determinísticas
                 store=True,  # Habilita almacenamiento en OpenAI Platform (logs/traces)
             )
             logger.debug("AI_ORCHESTRATOR [OpenAI]: ✓ Response recibido")
