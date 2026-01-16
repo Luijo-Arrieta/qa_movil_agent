@@ -38,7 +38,13 @@ AITestRunner (src/test_runner.py)
          └─ _execute_step(...)  + StepContext
               F1: AppiumSkills.get_screen_tree_stable()  → XML estable
               F2: UIParser.parse_screen()                → ui_elements (list[dict])
-              F3: AIOrchestrator.decide_next_action()    → usa StepContext + TOON
+              F3: Construir StepContext
+                  ├─ app_states = AppiumSkills.get_tracked_app_states()
+                  ├─ recent_actions = formatear(action_history[-5:])
+                  ├─ step_context = StepContext(...)
+                  ├─ self.current_context = step_context
+                  └─ AIOrchestrator.decide_next_action(ui_elements, context=StepContext)
+                      └─ _build_llm_context() serializa StepContext → TOON (borde LLM)
               F4: _execute_single_tool_call()            → AppiumSkills ejecuta acción
               F5: AppiumSkills.wait_for_ui_stable()      → espera de estabilidad
               + Detección de loops / acciones repetidas
@@ -176,16 +182,43 @@ Dentro de `_execute_step`:
    - ui_elements = UIParser.parse_screen(xml)  → list[dict] con {id, attrs, xpath, ...}
 
 3) FASE 3: Construcción de StepContext + decisión de IA
-   - app_states = AppiumSkills.get_tracked_app_states()  (dict[package -> state_code])
-   - recent_actions = [{"index": i, "text": texto}, ...] (últimas 5 acciones)
-   - StepContext:
-       - objective, step_index, total_steps
-       - current_step, previous_step, next_step
-       - action_history = recent_actions
-       - ui_elements = ui_elements (nativo, NO TOON)
-       - app_states = app_states
-   - self.current_context = StepContext
-   - ai_decision = AIOrchestrator.decide_next_action(ui_elements, context=StepContext)
+   
+   Construcción de StepContext (antes de llamar a decide_next_action):
+   
+   a) Obtener app_states:
+      - app_states = AppiumSkills.get_tracked_app_states()  
+      - Resultado: dict[package: str -> state_code: int]
+      - Estado 4 = FOREGROUND (solo una app puede estar en foreground)
+   
+   b) Formatear recent_actions desde action_history:
+      - recent_actions = [
+          {"index": idx, "text": text}
+          for idx, text in enumerate(self.action_history[-5:], 1)
+        ]
+      - Toma las últimas 5 acciones del historial
+      - Formato: list[dict] con {"index": int, "text": str}
+   
+   c) Construir StepContext con todos los datos:
+      step_context = StepContext(
+          objective=self.objective,              # Opcional, desde __init__
+          step_index=step_index,                 # Calculado en run_test_plan
+          total_steps=total_steps,               # Calculado en run_test_plan
+          current_step=step,                     # Paso actual del loop
+          next_step=next_step,                   # Calculado en run_test_plan
+          previous_step=previous_step,           # Calculado en run_test_plan
+          action_history=recent_actions,         # Formateado arriba (NO TOON)
+          ui_elements=ui_elements,               # Desde FASE 2 (formato nativo, NO TOON)
+          app_states=app_states,                 # Desde AppiumSkills
+      )
+   
+   d) Asignar a self.current_context para tracking:
+      self.current_context = step_context
+   
+   e) Llamar al orquestador con StepContext:
+      ai_decision = AIOrchestrator.decide_next_action(
+          ui_elements=ui_elements,  # También se pasa por separado
+          context=step_context      # StepContext completo
+      )
 
 4) FASE 4: Ejecutar acción (si hay tool_calls)
    - Se toma solo la primera tool_call.
@@ -203,6 +236,11 @@ Dentro de `_execute_step`:
      sin nueva llamada a la IA en pasos simples (verificación, click, input sencillo).
 ```
 
+**Importante sobre `StepContext`**:
+- Se construye **nuevo en cada iteración** del loop agéntico (FASE 3), reflejando el estado actualizado de la UI y el historial de acciones.
+- Todos los datos se mantienen en **formato nativo** (dicts, listas) dentro de `StepContext`.
+- Solo se convierte a texto TOON **dentro de `AIOrchestrator._build_llm_context()`** (borde LLM).
+
 Si `ai_decision` no trae `tool_calls`, se interpreta que la IA considera el paso completo y el runner lo marca como tal.
 
 ---
@@ -211,27 +249,95 @@ Si `ai_decision` no trae `tool_calls`, se interpreta que la IA considera el paso
 
 ### 5.1. `StepContext` como estado global
 
-`StepContext` (en `src/ai_orchestrator.py`) concentra el estado del agente para el paso actual:
-- **Plan**: `objective`, `step_index`, `total_steps`, `current_step`, `previous_step`, `next_step`.
-- **Historial de acciones**: `action_history: list[dict]` (p.ej. `{"index": 1, "text": "Acción X"}`).
-- **Pantalla actual**: `ui_elements: list[dict]` en formato nativo del `UIParser`.
-- **Apps en uso**: `app_states: dict[str, int]` (códigos Appium; una sola app puede estar en `FOREGROUND`).
+`StepContext` (definido como `@dataclass` en `src/ai_orchestrator.py`) concentra el estado del agente para el paso actual.
 
-Internamente todo se mantiene en **estructuras ricas (dicts, listas)**; no se convierten a texto hasta el borde LLM.
+**Estructura completa del dataclass**:
+
+```python
+@dataclass
+class StepContext:
+    objective: Optional[str]           # Objetivo general del test (opcional)
+    step_index: int                    # Índice del paso actual (1-based)
+    total_steps: int                   # Número total de pasos en el plan
+    current_step: str                  # Texto del paso actual a ejecutar
+    next_step: Optional[str]           # Texto del siguiente paso (None si es el último)
+    previous_step: Optional[str]       # Texto del paso anterior (None si es el primero)
+    action_history: List[Dict[str, Any]]  # Historial de acciones recientes
+    ui_elements: List[Dict[str, Any]]     # Elementos UI en formato nativo del UIParser
+    app_states: Dict[str, int]            # Estados de apps (package -> state_code)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Helper para logging/debug usando asdict()."""
+        return asdict(self)
+```
+
+**Descripción de campos**:
+
+- **Plan**:
+  - `objective`: Objetivo general del test (se pasa en `AITestRunner.__init__`).
+  - `step_index`, `total_steps`: Posición actual en el plan (calculados en `run_test_plan`).
+  - `current_step`, `previous_step`, `next_step`: Pasos del plan en texto (calculados en `run_test_plan`).
+
+- **Historial de acciones**: 
+  - `action_history: list[dict]` en formato `[{"index": int, "text": str}, ...]`.
+  - Contiene las últimas 5 acciones ejecutadas (formateadas desde `self.action_history[-5:]`).
+  - Ejemplo: `[{"index": 1, "text": "Acción: touch_element_by_id(...)"}, ...]`.
+
+- **Pantalla actual**:
+  - `ui_elements: list[dict]` en formato nativo del `UIParser`.
+  - Cada elemento tiene estructura `{"id": int, "attrs": [{"name": str, "value": str}, ...], ...}`.
+  - **NO está en formato TOON**; se mantiene como estructura rica durante la ejecución.
+
+- **Apps en uso**:
+  - `app_states: dict[str, int]` mapea `package -> state_code`.
+  - Códigos Appium: `0=NOT_INSTALLED`, `1=NOT_RUNNING`, `2=BACKGROUND_SUSPENDED`, `3=BACKGROUND`, `4=FOREGROUND`.
+  - Solo una app puede estar en `FOREGROUND` (estado 4) a la vez.
+  - Se obtiene desde `AppiumSkills.get_tracked_app_states()`.
+
+**Método `to_dict()`**:
+- Helper para logging/debug que usa `asdict()` del módulo `dataclasses`.
+- Convierte el `StepContext` a diccionario plano para inspección.
+
+**Principio clave**: Internamente todo se mantiene en **estructuras ricas (dicts, listas)**; no se convierten a texto hasta el borde LLM (`_build_llm_context()`).
 
 ### 5.2. Serialización a texto TOON sólo en el borde LLM
 
 `AIOrchestrator.decide_next_action(ui_elements, context: StepContext)`:
 
 1. Llama a `_build_llm_context(context, ui_elements)`:
-   - Construye un texto con bloques:
-     - `[Contexto del plan]`: objetivo, paso actual, anterior, siguiente.
-     - `[Historial de acciones recientes (TOON)]`: `toon_encode(context.action_history, delimiter="\t")`.
-     - `[Apps en uso (TOON)]`: de `app_states` a filas `{package, state_code, state_name}` y `toon_encode`.
-     - `[Elementos en pantalla (TOON)]`: `toon_encode(ui_elements, delimiter="|")` manteniendo `{id, attrs, xpath, ...}`.
-   - Este mismo bloque se usa:
-     - Para el `messages[1]["content"]` del LLM.
-     - Para el log `"Contexto generado"` (debug).
+   
+   **`_build_llm_context()` es el único lugar donde se serializa `StepContext` a texto**. Mantiene `ui_elements` y `action_history` como estructuras ricas durante la ejecución y solo las convierte a TOON justo antes de llamar al LLM.
+   
+   Construye un texto con **4 bloques principales**:
+   
+   a) **`[Contexto del plan]`** (texto plano):
+      - Objetivo general: `{context.objective}` (si existe).
+      - Paso actual: `{context.step_index}/{context.total_steps}: {context.current_step}`.
+      - Paso anterior: `{context.previous_step}` (si existe).
+      - Próximo paso: `{context.next_step}` (si existe).
+   
+   b) **`[Historial de acciones recientes (TOON)]`**:
+      - Convierte `context.action_history` (list[dict]) a TOON.
+      - `toon_encode(context.action_history, delimiter="\t")`.
+      - Formato de entrada: `[{"index": 1, "text": "..."}, ...]`.
+      - Formato TOON: tabla con columnas `index` y `text`.
+   
+   c) **`[Apps en uso (TOON)]`**:
+      - Convierte `context.app_states` (dict[package -> state_code]) a TOON.
+      - Primero expande a filas: `[{"package": pkg, "state_code": code, "state_name": APP_STATE_NAMES[code]}, ...]`.
+      - Luego: `toon_encode(app_rows, delimiter="\t")`.
+      - Formato TOON: tabla con columnas `package`, `state_code`, `state_name`.
+      - Ejemplo: `com.example.app | 4 | FOREGROUND`.
+   
+   d) **`[Elementos disponibles en la pantalla (formato TOON)]`**:
+      - Convierte `ui_elements` (list[dict]) a TOON.
+      - `toon_encode(ui_elements, delimiter="|")`.
+      - Mantiene estructura `{id, attrs, xpath, ...}` en formato tabular.
+      - Formato TOON: tabla con columnas `id`, `content-desc`, `class`, `xpath`, `clickable`, etc.
+   
+   El texto generado se usa:
+   - Para el `messages[1]["content"]` del LLM (OpenAI/Anthropic/DeepSeek).
+   - Para el log `"Contexto generado"` (debug).
 
 2. Define la lista de **tools** (function calling):
    - `touch_element_by_id`, `fill_field_by_id`, `scroll`, `go_back`, `assert_screen_contains`.
@@ -244,7 +350,15 @@ Internamente todo se mantiene en **estructuras ricas (dicts, listas)**; no se co
 4. Devuelve al runner un dict con:
    - `provider`, `message`, `tool_calls`, `raw_response`.
 
-**Importante**: `ui_elements` y `action_history` se guardan como `list[dict]` en `StepContext`; el TOON es sólo una **vista serializada para el modelo**.
+**Importante**: 
+- `ui_elements` y `action_history` se guardan como `list[dict]` en `StepContext` durante toda la ejecución.
+- El TOON es solo una **vista serializada para el modelo** que se genera únicamente en `_build_llm_context()`.
+- Esto permite mantener tipos ricos ideales para testing y depuración dentro del código Python.
+
+**Nota sobre método legacy `_build_context()`**:
+- Existe un wrapper de compatibilidad `_build_context()` en `AIOrchestrator` que construye un `StepContext` mínimo.
+- Mantiene la firma histórica usada en tests unitarios (parámetros separados).
+- Internamente delega a `_build_llm_context()` para mantener consistencia.
 
 ---
 
@@ -293,8 +407,13 @@ Integración en `_execute_step`:
                         - _execute_step(...)
                             F1: XML estable (get_screen_tree_stable)
                             F2: ui_elements = UIParser.parse_screen(XML)
-                            F3: construir StepContext (plan + historial + ui_elements + app_states)
-                                y pasar a AIOrchestrator.decide_next_action(...)
+                            F3: construir StepContext
+                                - app_states = AppiumSkills.get_tracked_app_states()
+                                - recent_actions = formatear(action_history[-5:])
+                                - step_context = StepContext(...)
+                                - self.current_context = step_context
+                                - AIOrchestrator.decide_next_action(ui_elements, context=StepContext)
+                                    └─ _build_llm_context() serializa StepContext → TOON (borde LLM)
                             F4: ejecutar tool_call con AppiumSkills (+ anti‑loops)
                             F5: esperar estabilidad de UI (salvo asserts)
                         - clasificar errores (recuperable / no recuperable)
