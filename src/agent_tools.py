@@ -5,7 +5,7 @@ Agent Tools - Herramientas de alto nivel para interactuar con Appium.
 import time
 import logging
 import traceback
-from typing import Optional
+from typing import Optional, Dict, Set
 from appium.webdriver.common.appiumby import AppiumBy
 from appium.webdriver import Remote
 from selenium.common.exceptions import StaleElementReferenceException
@@ -81,6 +81,18 @@ class AppiumSkills:
         
         # Tracking de app activa (para gestión multi-app)
         self._current_app_package: Optional[str] = None
+
+        # Tracking de apps usadas y estados conocidos (por driver)
+        self._driver_id: int = id(driver)
+        if not hasattr(self.__class__, "_usage_by_driver"):
+            # type: ignore[attr-defined]
+            self.__class__._usage_by_driver = {}  # type: ignore[attr-defined]
+        # type: ignore[attr-defined]
+        usage_map: Dict[int, Set[str]] = self.__class__._usage_by_driver  # type: ignore[attr-defined]
+        if self._driver_id not in usage_map:
+            usage_map[self._driver_id] = set()
+        self._used_app_packages: Set[str] = usage_map[self._driver_id]
+        self._app_states: Dict[str, int] = {}
         
         # Estadísticas de acciones
         self._action_stats = {
@@ -879,6 +891,12 @@ class AppiumSkills:
         try:
             state = self.driver.query_app_state(app_package)
             state_name = self.APP_STATE_NAMES.get(state, f"UNKNOWN({state})")
+
+            # Actualizar caches internos
+            self._app_states[app_package] = state
+            # Registrar app como "usada" si está instalada (cualquier estado >= 0)
+            if state >= 0:
+                self._used_app_packages.add(app_package)
             
             logger.info(f"AGENT_TOOLS: ✓ Estado de '{app_package}': {state_name} ({state})")
             self._action_stats["successful_actions"] += 1
@@ -926,8 +944,9 @@ class AppiumSkills:
             logger.debug(f"AGENT_TOOLS: Activando app '{app_package}'...")
             self.driver.activate_app(app_package)
             
-            # Actualizar tracking de app actual
+            # Actualizar tracking de app actual y listado de apps usadas
             self._current_app_package = app_package
+            self._used_app_packages.add(app_package)
             
             # Pausa para estabilización de la UI
             time.sleep(1.0)
@@ -970,6 +989,9 @@ class AppiumSkills:
             # Terminar la app
             logger.debug(f"AGENT_TOOLS: Terminando app '{app_package}'...")
             result = self.driver.terminate_app(app_package)
+
+            # Registrar app como usada (puede ser relevante para limpieza)
+            self._used_app_packages.add(app_package)
             
             # Actualizar tracking si era la app activa
             if self._current_app_package == app_package:
@@ -1107,3 +1129,40 @@ class AppiumSkills:
             Package de la app activa o None si no hay ninguna
         """
         return self._current_app_package
+
+    # =========================================================================
+    # ESTADO GLOBAL / TRACKING PARA LIMPIEZA
+    # =========================================================================
+
+    def get_used_app_packages(self) -> Set[str]:
+        """
+        Retorna el conjunto de packages de apps que se han usado
+        (consultado estado, activado o terminado) en esta instancia.
+        """
+        return set(self._used_app_packages)
+
+    @classmethod
+    def get_used_app_packages_for_driver(cls, driver: Remote) -> Set[str]:
+        """
+        Retorna el conjunto de apps usadas asociadas a un driver concreto.
+
+        NOTA: Esto se usa principalmente en tests/fixtures para limpieza
+        al final de cada prueba.
+        """
+        usage_map: Dict[int, Set[str]] = getattr(cls, "_usage_by_driver", {})
+        return set(usage_map.get(id(driver), set()))
+
+    @classmethod
+    def clear_used_app_packages_for_driver(cls, driver: Remote) -> None:
+        """
+        Limpia el tracking de apps usadas para un driver concreto.
+        """
+        usage_map: Dict[int, Set[str]] = getattr(cls, "_usage_by_driver", {})
+        usage_map.pop(id(driver), None)
+
+    def get_tracked_app_states(self) -> Dict[str, int]:
+        """
+        Retorna los últimos estados conocidos de las apps cuyo estado
+        se ha consultado mediante query_app_state().
+        """
+        return dict(self._app_states)

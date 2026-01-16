@@ -71,6 +71,70 @@ class TestAITestRunnerInit:
         assert runner.objective is None
 
 
+class TestStepContextIntegration:
+    """Tests para la integración de StepContext en AITestRunner."""
+
+    @patch('src.test_runner.AIOrchestrator')
+    @patch('src.test_runner.AppiumSkills')
+    @patch('src.test_runner.UIParser')
+    @patch('src.test_runner.Config')
+    @patch('src.test_runner.time')
+    def test_runner_builds_step_context(self, mock_time, mock_config, mock_ui_parser_class,
+                                        mock_skills_class, mock_orchestrator_class):
+        """Test: AITestRunner construye y mantiene StepContext en current_context."""
+        mock_config.validate.return_value = (True, None)
+        mock_config.debug_print_config = Mock()
+        mock_config.MAX_RETRIES_PER_STEP = 1
+        mock_config.MAX_ACTIONS_PER_STEP = 3
+        mock_config.MAX_REPEATED_ACTION_ATTEMPTS = 3
+        mock_time.sleep = Mock()
+        mock_time.time = Mock(return_value=1000)
+
+        mock_driver = Mock()
+        mock_driver.session_id = "test-session"
+
+        # UI con un solo elemento
+        mock_ui_parser = Mock()
+        ui_elements = [
+            {"id": 0, "role": "button", "label": "Continuar", "checked": None}
+        ]
+        mock_ui_parser.parse_screen.return_value = ui_elements
+        mock_ui_parser_class.return_value = mock_ui_parser
+
+        # Agent tools básicos
+        mock_skills = Mock()
+        mock_skills.get_screen_tree_stable.return_value = "<hierarchy/>"
+        mock_skills.wait_for_ui_stable.return_value = (True, 100, "stable")
+        mock_skills.get_action_stats.return_value = {}
+        mock_skills_class.return_value = mock_skills
+
+        # Orquestador que indica que el paso está completo sin tool_calls
+        mock_orchestrator = Mock()
+        mock_orchestrator.decide_next_action.return_value = {
+            "tool_calls": [],
+            "message": "Paso completado",
+        }
+        mock_orchestrator.get_stats.return_value = {}
+        mock_orchestrator_class.return_value = mock_orchestrator
+
+        from src.test_runner import AITestRunner
+        runner = AITestRunner(mock_driver, objective="Objetivo de prueba")
+
+        result = runner.run_test_plan(["Paso único"])
+
+        assert result is True
+        # Verificar que current_context se haya construido
+        assert runner.current_context is not None
+        ctx = runner.current_context
+        assert ctx.objective == "Objetivo de prueba"
+        assert ctx.step_index == 1
+        assert ctx.total_steps == 1
+        assert ctx.current_step == "Paso único"
+        assert ctx.previous_step is None
+        assert ctx.next_step is None
+        assert ctx.ui_elements == ui_elements
+
+
 class TestRunTestPlan:
     """Tests para run_test_plan()."""
 

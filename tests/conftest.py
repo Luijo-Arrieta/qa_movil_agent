@@ -24,6 +24,8 @@ from appium import webdriver
 from appium.options.android import UiAutomator2Options
 
 from src.config import Config
+from src.agent_tools import AppiumSkills
+from src.ui_parser import UIParser
 
 
 # Directorio base para logs
@@ -275,8 +277,12 @@ def driver_setup():
     """
     Fixture que inicializa y cierra el driver de Appium.
     
-    NOTA: Esta fixture NO abre ninguna app automáticamente.
-    El usuario final debe usar activate_app() de agent_tools.py para abrir la app que necesite.
+    Comportamiento según configuración:
+    - Si Config.ANDROID_APP_PACKAGE está definido y AUTO_LAUNCH_MAIN_APP=true →
+      se considera un proyecto single-app y se abre automáticamente la app
+      principal al inicio (modo cómodo).
+    - En otros casos (multi-app o AUTO_LAUNCH_MAIN_APP=false) →
+      el usuario/test debe usar explícitamente activate_app() de AppiumSkills.
 
     Yields:
         Driver de Appium configurado
@@ -373,6 +379,21 @@ def driver_setup():
             logger_appium.debug(f"CONFTEST: Traceback:\n{traceback.format_exc()}")
             # No es crítico, el driver puede estar bien aunque falle esto
 
+        # ══════════════════════════════════════════════════════════════════════
+        # FASE 6 (opcional): Abrir app principal en modo single-app
+        # ══════════════════════════════════════════════════════════════════════
+        if Config.ANDROID_APP_PACKAGE and Config.AUTO_LAUNCH_MAIN_APP:
+            logger_appium.info("")
+            logger_appium.info("CONFTEST: FASE 6 - AUTO_LAUNCH_MAIN_APP activo, abriendo app principal...")
+            try:
+                ui_parser = UIParser()
+                app_tools = AppiumSkills(driver, ui_parser)
+                result = app_tools.activate_app(Config.ANDROID_APP_PACKAGE)
+                logger_appium.info(f"CONFTEST: Resultado auto-launch app principal: {result}")
+            except Exception as e:
+                logger_appium.warning(f"CONFTEST WARNING: No se pudo auto-lanzar app principal '{Config.ANDROID_APP_PACKAGE}': {e}")
+                logger_appium.debug(f"CONFTEST: Traceback:\n{traceback.format_exc()}")
+
         fixture_setup_elapsed = (datetime.now() - fixture_start_time).total_seconds()
         logger_appium.info("")
         logger_appium.info(f"CONFTEST: ✅ Fixture setup completado en {fixture_setup_elapsed:.2f}s")
@@ -412,13 +433,58 @@ def driver_setup():
 
     finally:
         # ══════════════════════════════════════════════════════════════════════
-        # FASE FINAL: Cerrar driver
+        # FASE FINAL: Limpieza de apps usadas y cierre de driver
         # ══════════════════════════════════════════════════════════════════════
         if driver:
             logger_appium.info("")
-            logger_appium.info("CONFTEST: FASE FINAL - Cerrando driver...")
-            
-            # Cerrar driver
+            logger_appium.info("CONFTEST: FASE FINAL - Limpiando apps usadas y cerrando driver...")
+
+            # 1) Determinar apps usadas durante la prueba (tracking en AppiumSkills)
+            used_packages = AppiumSkills.get_used_app_packages_for_driver(driver)
+
+            # Si no se registró nada pero hay app principal configurada, asumir single-app
+            if not used_packages and Config.ANDROID_APP_PACKAGE:
+                used_packages.add(Config.ANDROID_APP_PACKAGE)
+
+            # 2) Limpiar storage de cada app de negocio (evitar system apps)
+            if used_packages:
+                device_udid = Config.ANDROID_UDID or Config.ANDROID_DEVICE_NAME
+                logger_appium.info(f"CONFTEST: Apps usadas a limpiar: {used_packages}")
+                for app_package in used_packages:
+                    # No tocar system apps Android
+                    if app_package.startswith("com.android"):
+                        logger_appium.info(f"CONFTEST: Saltando limpieza de system app: {app_package}")
+                        continue
+
+                    try:
+                        logger_appium.info(f"CONFTEST: Reseteando storage de la app: {app_package}...")
+                        import subprocess
+                        cmd = ["adb", "-s", device_udid, "shell", "pm", "clear", app_package]
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=15,
+                        )
+                        if result.returncode == 0:
+                            logger_appium.info(f"CONFTEST: Storage reseteado para: {app_package}")
+                        else:
+                            logger_appium.warning(
+                                f"CONFTEST: Error al resetear storage para {app_package}: {result.stderr}"
+                            )
+                    except subprocess.TimeoutExpired:
+                        logger_appium.warning(f"CONFTEST: Timeout al resetear storage para {app_package}")
+                    except FileNotFoundError:
+                        logger_appium.warning(
+                            "CONFTEST: ADB no encontrado en PATH, no se puede resetear storage"
+                        )
+                    except Exception as e:
+                        logger_appium.warning(f"CONFTEST: Error ejecutando ADB para {app_package}: {e}")
+
+            # Limpiar tracking de apps usadas para este driver
+            AppiumSkills.clear_used_app_packages_for_driver(driver)
+
+            # 3) Cerrar driver
             try:
                 session_id = driver.session_id
                 logger_appium.info(f"CONFTEST: Cerrando session: {session_id}")

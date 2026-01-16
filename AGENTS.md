@@ -162,6 +162,24 @@ Copy `.env.example` to `.env.local` and configure:
 - `ANDROID_APP_PATH`: Path to APK (recommended) OR `ANDROID_APP_PACKAGE` + `ANDROID_APP_ACTIVITY`
 - `ANDROID_DEVICE_NAME`: Device/emulator ID (check with `adb devices`)
 
+### Single-app vs Multi-app Projects
+
+The Appium configuration supports two logical modes:
+
+- **Single-app project**:
+  - `ANDROID_APP_PACKAGE` is configured (optionally with `ANDROID_APP_ACTIVITY`).
+  - Optionally, you can set `AUTO_LAUNCH_MAIN_APP=true` to auto-open this app in the `driver_setup` fixture.
+  - In this mode, tests *may* omit explicit `activate_app()` calls if auto-launch is enabled.
+
+- **Multi-app project**:
+  - `ANDROID_APP_PACKAGE` is not configured (or `AUTO_LAUNCH_MAIN_APP=false`).
+  - All apps (Customer, Technical, Admin, etc.) must be opened explicitly using `activate_app()` or `switch_to_app*` from `AppiumSkills`.
+  - The teardown logic will track which app packages were actually used in the test and only clears storage for those (excluding system apps like `com.android.*`).
+
+**Recommendation:**
+- For simple, single-app flows, set `ANDROID_APP_PACKAGE` and, if you want convenience, `AUTO_LAUNCH_MAIN_APP=true`.
+- For advanced/multi-app or SaaS-style scenarios, leave `AUTO_LAUNCH_MAIN_APP=false` and always use `activate_app()` explicitly in your plans.
+
 **Optional (for test examples):**
 - `TEST_USER_EMAIL`: Test user email for login tests (default: "cliente@demo.com")
 - `TEST_USER_PASSWORD`: Test user password for login tests (default: "123456")

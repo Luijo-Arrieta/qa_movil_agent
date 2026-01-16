@@ -11,6 +11,7 @@ import json
 import logging
 import time
 import traceback
+from dataclasses import dataclass, asdict
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from anthropic import Anthropic
@@ -72,6 +73,43 @@ GESTIÓN MULTI-APP:
 - terminate_app(app_package): Cierra completamente una app
 
 IMPORTANTE: Ejecuta SOLO la acción del paso ACTUAL. NO te adelantes a pasos futuros."""
+
+
+@dataclass
+class StepContext:
+    """
+    Estado global del agente para un paso concreto del plan.
+    Mantiene tipos ricos durante la ejecución y sólo se serializa a texto
+    (TOON) justo antes de llamar al LLM.
+    """
+
+    objective: Optional[str]
+    step_index: int
+    total_steps: int
+    current_step: str
+    next_step: Optional[str]
+    previous_step: Optional[str]
+    # Historial de acciones en formato rico (p.ej. {"index": 1, "text": "..."}).
+    # El orquestador lo convierte a TOON sólo en el borde LLM.
+    action_history: List[Dict[str, Any]]
+    # Elementos del UI en su formato nativo del UIParser: List[dict]
+    ui_elements: List[Dict[str, Any]]
+    # Estados de apps: {package: state_code}. Sólo una app puede estar en FOREGROUND.
+    app_states: Dict[str, int]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Helper para logging/debug."""
+        return asdict(self)
+
+
+# Mapa de códigos de estado de Appium a nombres legibles
+APP_STATE_NAMES = {
+    0: "NOT_INSTALLED",
+    1: "NOT_RUNNING",
+    2: "BACKGROUND_SUSPENDED",
+    3: "BACKGROUND",
+    4: "FOREGROUND",
+}
 
 
 class AIOrchestrator:
@@ -142,18 +180,14 @@ class AIOrchestrator:
     def decide_next_action(
         self,
         ui_elements: List[Dict[str, Any]],
-        current_step: str,
-        action_history: List[str],
-        objective: Optional[str] = None,
+        context: StepContext,
     ) -> Dict[str, Any]:
         """
         Analiza la UI parseada y decide qué acción ejecutar.
 
         Args:
             ui_elements: Lista de elementos JSON parseados por UIParser
-            current_step: Paso actual a ejecutar
-            action_history: Historial de acciones recientes (últimas 3-5)
-            objective: Objetivo general del test (opcional)
+            context: Contexto completo del paso actual (StepContext)
 
         Returns:
             Diccionario con la decisión de la IA (tool_call o mensaje)
@@ -167,21 +201,26 @@ class AIOrchestrator:
         logger.info(f"AI_ORCHESTRATOR: Llamada #{call_number}")
         
         # Log inputs
-        logger.debug(f"AI_ORCHESTRATOR: Objetivo: '{objective or 'No definido'}'")
-        logger.debug(f"AI_ORCHESTRATOR: Paso actual: '{current_step}'")
+        logger.debug(f"AI_ORCHESTRATOR: Objetivo: '{context.objective or 'No definido'}'")
+        logger.debug(
+            "AI_ORCHESTRATOR: Paso actual %s/%s: '%s'",
+            context.step_index,
+            context.total_steps,
+            context.current_step,
+        )
         logger.debug(f"AI_ORCHESTRATOR: Elementos UI disponibles: {len(ui_elements)}")
-        logger.debug(f"AI_ORCHESTRATOR: Historial de acciones: {len(action_history)} acciones")
+        logger.debug(f"AI_ORCHESTRATOR: Historial de acciones: {len(context.action_history)} entradas")
         
         if not ui_elements:
             logger.warning("AI_ORCHESTRATOR WARNING: No hay elementos UI para analizar")
         
-        # Preparar contexto para el LLM
+        # Preparar contexto para el LLM (texto TOON derivado de StepContext + UI)
         logger.debug("AI_ORCHESTRATOR: Construyendo contexto para el LLM...")
-        context = self._build_context(ui_elements, current_step, action_history, objective)
+        llm_context = self._build_llm_context(context, ui_elements)
         
         # Log del contexto completo (para debug profundo)
         logger.debug("AI_ORCHESTRATOR: Contexto generado:")
-        for line in context.split('\n'):
+        for line in llm_context.split('\n'):
             logger.debug(f"  {line}")
 
         # Definir herramientas disponibles
@@ -193,13 +232,13 @@ class AIOrchestrator:
         try:
             if self.provider == "openai":
                 logger.info(f"AI_ORCHESTRATOR: Llamando a OpenAI ({self.model})...")
-                result = self._call_openai(context, tools)
+                result = self._call_openai(llm_context, tools)
             elif self.provider == "deepseek":
                 logger.info(f"AI_ORCHESTRATOR: Llamando a DeepSeek ({self.model})...")
-                result = self._call_openai(context, tools)  # DeepSeek usa la misma API que OpenAI
+                result = self._call_openai(llm_context, tools)  # DeepSeek usa la misma API que OpenAI
             else:  # anthropic
                 logger.info(f"AI_ORCHESTRATOR: Llamando a Anthropic ({self.model})...")
-                result = self._call_anthropic(context, tools)
+                result = self._call_anthropic(llm_context, tools)
             
             elapsed_ms = int((time.time() - start_time) * 1000)
             self._call_stats["successful_calls"] += 1
@@ -224,6 +263,104 @@ class AIOrchestrator:
             logger.error(f"AI_ORCHESTRATOR ERROR: Traceback:\n{traceback.format_exc()}")
             raise
 
+    def _build_llm_context(
+        self,
+        context: StepContext,
+        ui_elements: List[Dict[str, Any]],
+    ) -> str:
+        """
+        Serializa StepContext + elementos UI a texto para el LLM usando formato TOON.
+        
+        - Mantiene `ui_elements` y `action_history` en estructuras ricas (List[dict])
+          durante la ejecución.
+        - Sólo en este borde se convierten a TOON para maximizar eficiencia de tokens.
+        """
+        parts: List[str] = []
+
+        # ------------------------------------------------------------------
+        # BLOQUE 1: Contexto del plan
+        # ------------------------------------------------------------------
+        parts.append("[Contexto del plan]")
+        if context.objective:
+            parts.append(f"Objetivo general: {context.objective}")
+        parts.append(
+            f"Paso actual a ejecutar ({context.step_index}/{context.total_steps}): {context.current_step}"
+        )
+        if context.previous_step:
+            parts.append(f"Paso anterior: {context.previous_step}")
+        if context.next_step:
+            parts.append(f"Próximo paso: {context.next_step}")
+        parts.append("")
+
+        # ------------------------------------------------------------------
+        # BLOQUE 2: Historial de acciones recientes (TOON)
+        # ------------------------------------------------------------------
+        parts.append("[Historial de acciones recientes (TOON)]")
+        if context.action_history:
+            try:
+                history_toon = toon_encode(context.action_history, {"delimiter": "\t"})
+                parts.append(history_toon)
+            except Exception as e:
+                logger.warning(
+                    "AI_ORCHESTRATOR: No se pudo convertir action_history a TOON: %s", e
+                )
+                for i, action in enumerate(context.action_history, 1):
+                    parts.append(f"  {i}. {action}")
+        else:
+            parts.append("  (Sin acciones previas)")
+        parts.append("")
+
+        # ------------------------------------------------------------------
+        # BLOQUE 3: Apps en uso (TOON)
+        # ------------------------------------------------------------------
+        parts.append("[Apps en uso (TOON)]")
+        if context.app_states:
+            app_rows: List[Dict[str, Any]] = []
+            for pkg, code in context.app_states.items():
+                app_rows.append(
+                    {
+                        "package": pkg,
+                        "state_code": code,
+                        "state_name": APP_STATE_NAMES.get(code, "UNKNOWN"),
+                    }
+                )
+            try:
+                apps_toon = toon_encode(app_rows, {"delimiter": "\t"})
+                parts.append(apps_toon)
+            except Exception as e:
+                logger.warning(
+                    "AI_ORCHESTRATOR: No se pudo convertir app_states a TOON: %s", e
+                )
+                for row in app_rows:
+                    parts.append(
+                        f"  {row['package']} -> code={row['state_code']}, state={row['state_name']}"
+                    )
+        else:
+            parts.append("  (Sin apps en uso registradas)")
+        parts.append("")
+
+        # ------------------------------------------------------------------
+        # BLOQUE 4: Elementos disponibles en la pantalla (TOON)
+        # ------------------------------------------------------------------
+        parts.append("[Elementos disponibles en la pantalla (formato TOON)]\n")
+        if not ui_elements:
+            parts.append("  (No hay elementos interactuables visibles)")
+        else:
+            toon_options = {
+                "delimiter": "|",
+            }
+            toon_elements = toon_encode(ui_elements, toon_options)
+            parts.append(toon_elements)
+            logger.debug(
+                "AI_ORCHESTRATOR: Elementos convertidos a TOON (%s chars)",
+                len(toon_elements),
+            )
+
+        context_str = "\n".join(parts)
+        logger.debug(f"AI_ORCHESTRATOR: Contexto generado: \n\n{context_str}")
+
+        return context_str
+
     def _build_context(
         self,
         ui_elements: List[Dict[str, Any]],
@@ -232,54 +369,31 @@ class AIOrchestrator:
         objective: Optional[str],
     ) -> str:
         """
-        Construye el contexto para el prompt del LLM usando formato TOON.
-        
-        TOON (Token-Oriented Object Notation) reduce el consumo de tokens
-        en un 30-60% comparado con JSON para arrays uniformes de objetos.
-        
-        Los elementos se mantienen en su estructura anidada {id, attrs: [{name, value}]}
-        y se convierten directamente a TOON sin modificar su estructura.
+        Wrapper de compatibilidad que construye un StepContext mínimo y delega
+        en `_build_llm_context`.
 
-        Args:
-            ui_elements: Lista de elementos disponibles (UIElement con estructura {id, attrs})
-            current_step: Paso actual
-            action_history: Historial de acciones
-            objective: Objetivo general
-
-        Returns:
-            String con el contexto formateado en TOON
+        Mantiene la firma histórica usada en tests unitarios, pero internamente
+        ya usa StepContext como fuente única de verdad.
         """
-        context_parts = []
+        # Adaptar historial de acciones de List[str] -> List[dict] simple
+        history_dicts: List[Dict[str, Any]] = [
+            {"index": idx, "text": text}
+            for idx, text in enumerate(action_history[-5:], 1)
+        ]
 
-        # Objetivo general
-        if objective:
-            context_parts.append(f"Objetivo general: {objective}\n")
+        ctx = StepContext(
+            objective=objective,
+            step_index=1,
+            total_steps=1,
+            current_step=current_step,
+            next_step=None,
+            previous_step=None,
+            action_history=history_dicts,
+            ui_elements=ui_elements,
+            app_states={},
+        )
 
-        # Paso actual
-        context_parts.append(f"Paso actual a ejecutar: {current_step}\n")
-
-        # Historial reciente
-        if action_history:
-            context_parts.append("Historial de acciones recientes:")
-            for i, action in enumerate(action_history[-5:], 1):  # Últimas 5 acciones
-                context_parts.append(f"  {i}. {action}")
-            context_parts.append("")
-
-        # Elementos disponibles en la pantalla (formato TOON)
-        context_parts.append("Elementos disponibles en la pantalla (formato TOON):")
-        if not ui_elements:
-            context_parts.append("  (No hay elementos interactuables visibles)")
-        else:
-            # Convertir a TOON manteniendo la estructura anidada {id, attrs: [{name, value}]}
-            toon_options = {
-                "delimiter": "|",
-            }
-            toon_elements = toon_encode(ui_elements, toon_options)
-            context_parts.append(toon_elements)
-            
-            logger.debug(f"AI_ORCHESTRATOR: Elementos convertidos a TOON ({len(toon_elements)} chars)")
-
-        return "\n".join(context_parts)
+        return self._build_llm_context(ctx, ui_elements)
 
     def _get_tools_definition(self) -> List[Dict[str, Any]]:
         """

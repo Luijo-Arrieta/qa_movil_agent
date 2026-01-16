@@ -80,6 +80,11 @@ class Config:
     TEST_USER_EMAIL: str = os.getenv("TEST_USER_EMAIL", "cliente@demo.com")
     TEST_USER_PASSWORD: str = os.getenv("TEST_USER_PASSWORD", "123456")
 
+    # Modo de proyecto / comportamiento de app principal
+    # Si ANDROID_APP_PACKAGE está definido, se considera un proyecto "single-app"
+    # (hay una app principal). Si no, se asume proyecto multi-app.
+    AUTO_LAUNCH_MAIN_APP: bool = os.getenv("AUTO_LAUNCH_MAIN_APP", "false").lower() == "true"
+
     @classmethod
     def debug_print_config(cls) -> None:
         """
@@ -120,6 +125,7 @@ class Config:
         logger.info(f"  AUTO_GRANT_PERMISSIONS: {cls.ANDROID_AUTO_GRANT_PERMISSIONS}")
         logger.info(f"  IGNORE_HIDDEN_API_ERROR: {cls.ANDROID_IGNORE_HIDDEN_API_POLICY_ERROR}")
         logger.info(f"  DISABLE_WINDOW_ANIMATION: {cls.ANDROID_DISABLE_WINDOW_ANIMATION}")
+        logger.info(f"  AUTO_LAUNCH_MAIN_APP (single-app only): {cls.AUTO_LAUNCH_MAIN_APP}")
         
         # Timeouts
         logger.info("-" * 40)
