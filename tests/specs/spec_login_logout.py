@@ -13,7 +13,7 @@ Cómo ejecutar solo este test:
 
 import pytest
 
-from src.test_runner import AITestRunner
+from src import create_qai
 from src.config import Config
 
 
@@ -51,8 +51,8 @@ class TestLoginLogoutSpec:
         test_email = Config.TEST_USER_EMAIL
         test_password = Config.TEST_USER_PASSWORD
 
-        # Crear runner del agente de IA
-        runner = AITestRunner(driver=driver_setup, objective=objective)
+        # Crear runner del agente de IA (usa QAI_VERSION de .env)
+        runner = create_qai(driver=driver_setup, objective=objective)
 
         # Plan de prueba en lenguaje natural para el agente (happy-path)
         test_plan = [

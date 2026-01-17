@@ -281,7 +281,7 @@ class TestAgentToolsMultiApp:
         Ejecutar solo este test:
         poetry run pytest tests/integration/test_agent_tools_integration.py::TestAgentToolsMultiApp::test_multi_app_tools_with_ai -v -s
         """
-        from src.test_runner import AITestRunner
+        from src import create_qai
         
         logger.info("")
         logger.info("=" * 80)
@@ -318,7 +318,7 @@ class TestAgentToolsMultiApp:
         
         objective = f"Cambiar a la app Settings ({SETTINGS_PACKAGE}) y verificar que se abrió correctamente"
         
-        runner = AITestRunner(driver=driver_setup, objective=objective)
+        runner = create_qai(driver=driver_setup, objective=objective)
         
         test_plan = [
             f"Abrir la app Settings (package: {SETTINGS_PACKAGE})",

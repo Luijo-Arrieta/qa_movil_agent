@@ -590,7 +590,8 @@ class UIParser:
         if log_output:
             for line in lines:
                 if line.strip():
-                    logger.info(line)
+                    #logger.info(line)
+                    pass
         
         return output
     

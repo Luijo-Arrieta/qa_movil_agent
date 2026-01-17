@@ -14,21 +14,22 @@ logger = logging.getLogger(__name__)
 class TestAITestRunnerInit:
     """Tests para la inicialización de AITestRunner."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+    @patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+    @patch('src.v1.test_runner.AppiumSkills')
+    @patch('src.v1.test_runner.UIParser')
+    @patch('src.v1.test_runner.Config')
     def test_init_success(self, mock_config, mock_ui_parser_class, 
                           mock_skills_class, mock_orchestrator_class):
         """Test: Inicialización exitosa."""
         mock_config.validate.return_value = (True, None)
         mock_config.debug_print_config = Mock()
+        mock_config.QAI_VERSION = "v1"  # Forzar V1 para tests unitarios
 
         mock_driver = Mock()
         mock_driver.session_id = "test-session-123"
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver, objective="Test objetivo")
+        from src.v1.test_runner import QAIV1TestRunner
+        runner = QAIV1TestRunner(mock_driver, objective="Test objetivo")
 
         assert runner.driver == mock_driver
         assert runner.objective == "Test objetivo"
@@ -38,24 +39,25 @@ class TestAITestRunnerInit:
         mock_skills_class.assert_called_once()
         mock_orchestrator_class.assert_called_once()
 
-    @patch('src.test_runner.Config')
+    @patch('src.v1.test_runner.Config')
     def test_init_invalid_config(self, mock_config):
         """Test: Error cuando configuración es inválida."""
         mock_config.validate.return_value = (False, "Missing API key")
         mock_config.debug_print_config = Mock()
+        mock_config.QAI_VERSION = "v1"
 
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        from src.test_runner import AITestRunner
+        from src.v1.test_runner import QAIV1TestRunner
         with pytest.raises(ValueError) as exc_info:
-            AITestRunner(mock_driver)
+            QAIV1TestRunner(mock_driver)
         assert "Missing API key" in str(exc_info.value)
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+    @patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+    @patch('src.v1.test_runner.AppiumSkills')
+    @patch('src.v1.test_runner.UIParser')
+    @patch('src.v1.test_runner.Config')
     def test_init_without_objective(self, mock_config, mock_ui_parser, 
                                      mock_skills, mock_orchestrator):
         """Test: Inicialización sin objetivo."""
@@ -65,8 +67,9 @@ class TestAITestRunnerInit:
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         assert runner.objective is None
 
@@ -74,11 +77,11 @@ class TestAITestRunnerInit:
 class TestStepContextIntegration:
     """Tests para la integración de StepContext en AITestRunner."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
-    @patch('src.test_runner.time')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
+    @patch('src.v1.test_runner.time')
     def test_runner_builds_step_context(self, mock_time, mock_config, mock_ui_parser_class,
                                         mock_skills_class, mock_orchestrator_class):
         """Test: AITestRunner construye y mantiene StepContext en current_context."""
@@ -117,8 +120,9 @@ class TestStepContextIntegration:
         mock_orchestrator.get_stats.return_value = {}
         mock_orchestrator_class.return_value = mock_orchestrator
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver, objective="Objetivo de prueba")
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver, objective="Objetivo de prueba")
 
         result = runner.run_test_plan(["Paso único"])
 
@@ -138,10 +142,10 @@ class TestStepContextIntegration:
 class TestRunTestPlan:
     """Tests para run_test_plan()."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_run_empty_plan(self, mock_config, mock_ui_parser, 
                             mock_skills, mock_orchestrator):
         """Test: Plan vacío retorna True."""
@@ -151,18 +155,19 @@ class TestRunTestPlan:
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         result = runner.run_test_plan([])
 
         assert result is True
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
-    @patch('src.test_runner.time')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
+    @patch('src.v1.test_runner.time')
     def test_run_single_step_success(self, mock_time, mock_config, mock_ui_parser_class,
                                       mock_skills_class, mock_orchestrator_class):
         """Test: Plan de un paso exitoso."""
@@ -199,18 +204,19 @@ class TestRunTestPlan:
         mock_orchestrator.get_stats.return_value = {}
         mock_orchestrator_class.return_value = mock_orchestrator
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         result = runner.run_test_plan(["Click en Login"])
 
         assert result is True
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
-    @patch('src.test_runner.time')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
+    @patch('src.v1.test_runner.time')
     def test_run_step_failure_after_retries(self, mock_time, mock_config, 
                                              mock_ui_parser_class, mock_skills_class, 
                                              mock_orchestrator_class):
@@ -242,8 +248,9 @@ class TestRunTestPlan:
         mock_orchestrator.get_stats.return_value = {}
         mock_orchestrator_class.return_value = mock_orchestrator
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         result = runner.run_test_plan(["Click en elemento inexistente"])
 
@@ -253,10 +260,10 @@ class TestRunTestPlan:
 class TestExecuteSingleToolCall:
     """Tests para _execute_single_tool_call()."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_touch_element_by_id(self, mock_config, mock_ui_parser_class,
                                           mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar touch_element_by_id."""
@@ -270,8 +277,9 @@ class TestExecuteSingleToolCall:
         mock_skills.touch_element_by_id.return_value = "Success: Clicked"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "touch_element_by_id", "arguments": {"element_id": 5}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -279,10 +287,10 @@ class TestExecuteSingleToolCall:
         assert result is True
         mock_skills.touch_element_by_id.assert_called_once_with(5)
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_fill_field_by_id(self, mock_config, mock_ui_parser_class,
                                        mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar fill_field_by_id."""
@@ -296,8 +304,9 @@ class TestExecuteSingleToolCall:
         mock_skills.fill_field_by_id.return_value = "Success: Typed"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {
             "name": "fill_field_by_id", 
@@ -309,10 +318,10 @@ class TestExecuteSingleToolCall:
         assert result is True
         mock_skills.fill_field_by_id.assert_called_once_with(2, "test@email.com")
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_scroll(self, mock_config, mock_ui_parser_class,
                             mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar scroll."""
@@ -326,8 +335,9 @@ class TestExecuteSingleToolCall:
         mock_skills.scroll.return_value = "Success: Scrolled down"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "scroll", "arguments": {"direction": "down"}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -335,10 +345,10 @@ class TestExecuteSingleToolCall:
         assert result is True
         mock_skills.scroll.assert_called_once_with("down")
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_go_back(self, mock_config, mock_ui_parser_class,
                              mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar go_back."""
@@ -352,8 +362,9 @@ class TestExecuteSingleToolCall:
         mock_skills.go_back.return_value = "Success: Back pressed"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "go_back", "arguments": {}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -361,10 +372,10 @@ class TestExecuteSingleToolCall:
         assert result is True
         mock_skills.go_back.assert_called_once()
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_assert_screen_contains_success(self, mock_config, mock_ui_parser_class,
                                                      mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar assert_screen_contains exitoso."""
@@ -379,8 +390,9 @@ class TestExecuteSingleToolCall:
         mock_skills.assert_screen_contains.return_value = (True, "Success: Text found")
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "assert_screen_contains", "arguments": {"text": "Welcome"}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -388,10 +400,10 @@ class TestExecuteSingleToolCall:
         assert result is True
         mock_skills.assert_screen_contains.assert_called_once_with("Welcome")
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_assert_screen_contains_failure(self, mock_config, mock_ui_parser_class,
                                                      mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar assert_screen_contains fallido."""
@@ -406,18 +418,19 @@ class TestExecuteSingleToolCall:
         mock_skills.assert_screen_contains.return_value = (False, "Error: Text not found")
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "assert_screen_contains", "arguments": {"text": "Missing"}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
 
         assert result is False
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_unknown_tool(self, mock_config, mock_ui_parser_class,
                                    mock_skills_class, mock_orchestrator_class):
         """Test: Herramienta desconocida retorna False."""
@@ -427,18 +440,19 @@ class TestExecuteSingleToolCall:
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "unknown_tool", "arguments": {}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
 
         assert result is False
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_missing_element_id(self, mock_config, mock_ui_parser_class,
                                          mock_skills_class, mock_orchestrator_class):
         """Test: Falta element_id retorna False."""
@@ -448,8 +462,9 @@ class TestExecuteSingleToolCall:
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "touch_element_by_id", "arguments": {}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -460,10 +475,10 @@ class TestExecuteSingleToolCall:
 class TestMultiAppToolCalls:
     """Tests para tool calls de gestión multi-app."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_activate_app(self, mock_config, mock_ui_parser_class,
                                    mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar activate_app."""
@@ -477,8 +492,9 @@ class TestMultiAppToolCalls:
         mock_skills.activate_app.return_value = "Success: Activated"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "activate_app", "arguments": {"app_package": "com.test.app"}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -486,10 +502,10 @@ class TestMultiAppToolCalls:
         assert result is True
         mock_skills.activate_app.assert_called_once_with("com.test.app")
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_terminate_app(self, mock_config, mock_ui_parser_class,
                                     mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar terminate_app."""
@@ -503,8 +519,9 @@ class TestMultiAppToolCalls:
         mock_skills.terminate_app.return_value = "Success: Terminated"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "terminate_app", "arguments": {"app_package": "com.test.app"}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -512,10 +529,10 @@ class TestMultiAppToolCalls:
         assert result is True
         mock_skills.terminate_app.assert_called_once_with("com.test.app")
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_switch_to_app(self, mock_config, mock_ui_parser_class,
                                     mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar switch_to_app."""
@@ -529,8 +546,9 @@ class TestMultiAppToolCalls:
         mock_skills.switch_to_app.return_value = "Success: Switched"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "switch_to_app", "arguments": {"app_package": "com.new.app"}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -538,10 +556,10 @@ class TestMultiAppToolCalls:
         assert result is True
         mock_skills.switch_to_app.assert_called_once_with("com.new.app")
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_switch_to_app_keep_background(self, mock_config, mock_ui_parser_class,
                                                     mock_skills_class, mock_orchestrator_class):
         """Test: Ejecutar switch_to_app_keep_background."""
@@ -555,8 +573,9 @@ class TestMultiAppToolCalls:
         mock_skills.switch_to_app_keep_background.return_value = "Success: Switched (background)"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {
             "name": "switch_to_app_keep_background", 
@@ -568,10 +587,10 @@ class TestMultiAppToolCalls:
         assert result is True
         mock_skills.switch_to_app_keep_background.assert_called_once_with("com.new.app")
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_execute_app_tool_missing_package(self, mock_config, mock_ui_parser_class,
                                                mock_skills_class, mock_orchestrator_class):
         """Test: Falta app_package retorna False."""
@@ -581,8 +600,9 @@ class TestMultiAppToolCalls:
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "activate_app", "arguments": {}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -593,10 +613,10 @@ class TestMultiAppToolCalls:
 class TestClearHistory:
     """Tests para clear_history()."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_clear_history(self, mock_config, mock_ui_parser,
                            mock_skills, mock_orchestrator):
         """Test: Limpiar historial."""
@@ -606,8 +626,9 @@ class TestClearHistory:
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
         runner.action_history = ["Acción 1", "Acción 2", "Acción 3"]
 
         runner.clear_history()
@@ -618,10 +639,10 @@ class TestClearHistory:
 class TestGetExecutionStats:
     """Tests para get_execution_stats()."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_get_execution_stats(self, mock_config, mock_ui_parser_class,
                                   mock_skills_class, mock_orchestrator_class):
         """Test: Obtener estadísticas de ejecución."""
@@ -639,8 +660,9 @@ class TestGetExecutionStats:
         mock_skills.get_action_stats.return_value = {"total_actions": 10}
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
         runner.action_history = ["a1", "a2"]
 
         stats = runner.get_execution_stats()
@@ -654,10 +676,10 @@ class TestGetExecutionStats:
 class TestDebugDumpState:
     """Tests para debug_dump_state()."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_debug_dump_state(self, mock_config, mock_ui_parser_class,
                                mock_skills_class, mock_orchestrator_class):
         """Test: Debug dump no lanza excepciones."""
@@ -672,8 +694,9 @@ class TestDebugDumpState:
         mock_ui_parser.current_id = 2
         mock_ui_parser_class.return_value = mock_ui_parser
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver, objective="Test objetivo")
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver, objective="Test objetivo")
         runner.action_history = ["Acción de prueba"]
 
         # No debe lanzar excepción
@@ -683,10 +706,10 @@ class TestDebugDumpState:
 class TestToolCallWithError:
     """Tests para manejo de errores en tool calls."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_tool_call_returns_error(self, mock_config, mock_ui_parser_class,
                                       mock_skills_class, mock_orchestrator_class):
         """Test: Tool call que retorna Error."""
@@ -700,18 +723,19 @@ class TestToolCallWithError:
         mock_skills.touch_element_by_id.return_value = "Error: Element not found"
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "touch_element_by_id", "arguments": {"element_id": 0}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
 
         assert result is False
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
     def test_tool_call_raises_exception(self, mock_config, mock_ui_parser_class,
                                          mock_skills_class, mock_orchestrator_class):
         """Test: Tool call que lanza excepción."""
@@ -725,8 +749,9 @@ class TestToolCallWithError:
         mock_skills.scroll.side_effect = Exception("Unexpected error")
         mock_skills_class.return_value = mock_skills
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         tool_call = {"name": "scroll", "arguments": {"direction": "down"}, "id": "1"}
         result = runner._execute_single_tool_call(tool_call, "test step")
@@ -737,11 +762,11 @@ class TestToolCallWithError:
 class TestRepeatedActionDetection:
     """Tests para detección de acciones repetidas (loop prevention)."""
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
-    @patch('src.test_runner.time')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
+    @patch('src.v1.test_runner.time')
     def test_repeated_action_fails_after_3_attempts(self, mock_time, mock_config, 
                                                      mock_ui_parser_class, mock_skills_class, 
                                                      mock_orchestrator_class):
@@ -782,8 +807,9 @@ class TestRepeatedActionDetection:
         mock_orchestrator.get_stats.return_value = {}
         mock_orchestrator_class.return_value = mock_orchestrator
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         # Ejecutar paso - debe fallar por acciones repetidas
         result = runner.run_test_plan(["Escribir contraseña 'password123'"])
@@ -794,11 +820,11 @@ class TestRepeatedActionDetection:
         # Verificar que se llamó a la IA 3 veces (el límite de repeticiones)
         assert mock_orchestrator.decide_next_action.call_count == 3
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
-    @patch('src.test_runner.time')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
+    @patch('src.v1.test_runner.time')
     def test_different_actions_dont_trigger_limit(self, mock_time, mock_config, 
                                                    mock_ui_parser_class, mock_skills_class, 
                                                    mock_orchestrator_class):
@@ -839,19 +865,20 @@ class TestRepeatedActionDetection:
         mock_orchestrator.get_stats.return_value = {}
         mock_orchestrator_class.return_value = mock_orchestrator
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         result = runner.run_test_plan(["Hacer login con email y contraseña"])
 
         # Debe ser exitoso ya que las acciones son diferentes
         assert result is True
 
-    @patch('src.test_runner.AIOrchestrator')
-    @patch('src.test_runner.AppiumSkills')
-    @patch('src.test_runner.UIParser')
-    @patch('src.test_runner.Config')
-    @patch('src.test_runner.time')
+@patch('src.v1.ai_orchestrator.QAIV1Orchestrator')
+@patch('src.v1.test_runner.AppiumSkills')
+@patch('src.v1.test_runner.UIParser')
+@patch('src.v1.test_runner.Config')
+    @patch('src.v1.test_runner.time')
     def test_same_action_different_args_dont_trigger_limit(self, mock_time, mock_config, 
                                                             mock_ui_parser_class, mock_skills_class, 
                                                             mock_orchestrator_class):
@@ -890,8 +917,9 @@ class TestRepeatedActionDetection:
         mock_orchestrator.get_stats.return_value = {}
         mock_orchestrator_class.return_value = mock_orchestrator
 
-        from src.test_runner import AITestRunner
-        runner = AITestRunner(mock_driver)
+        from src.v1.test_runner import QAIV1TestRunner
+        mock_config.QAI_VERSION = "v1"
+        runner = QAIV1TestRunner(mock_driver)
 
         result = runner.run_test_plan(["Llenar múltiples campos"])
 

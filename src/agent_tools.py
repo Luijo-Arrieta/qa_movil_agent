@@ -5,6 +5,7 @@ Agent Tools - Herramientas de alto nivel para interactuar con Appium.
 import time
 import logging
 import traceback
+import requests
 from typing import Optional, Dict, Set
 from appium.webdriver.common.appiumby import AppiumBy
 from appium.webdriver import Remote
@@ -124,15 +125,15 @@ class AppiumSkills:
         Returns:
             String con el XML completo de page_source
         """
-        logger.debug("AGENT_TOOLS: Obteniendo page_source (screen tree)...")
+        #logger.debug("AGENT_TOOLS: Obteniendo page_source (screen tree)...")
         
         start_time = time.time()
         try:
             page_source = self.driver.page_source
             elapsed_ms = int((time.time() - start_time) * 1000)
             
-            logger.debug(f"AGENT_TOOLS: ✓ page_source obtenido en {elapsed_ms}ms "
-                        f"({len(page_source)} caracteres)")
+            #logger.debug(f"AGENT_TOOLS: ✓ page_source obtenido en {elapsed_ms}ms "
+            #            f"({len(page_source)} caracteres)")
             
             # Verificación básica de validez
             if not page_source or len(page_source) < 50:
@@ -342,7 +343,7 @@ class AppiumSkills:
         Returns:
             XML de la pantalla estable
         """
-        logger.debug("AGENT_TOOLS: Obteniendo screen tree con espera de estabilidad...")
+        #logger.debug("AGENT_TOOLS: Obteniendo screen tree con espera de estabilidad...")
         
         # Esperar estabilidad
         is_stable, wait_time, reason = self.wait_for_ui_stable(timeout)
@@ -943,13 +944,21 @@ class AppiumSkills:
             # Activar la app (traerla al foreground)
             logger.debug(f"AGENT_TOOLS: Activando app '{app_package}'...")
             self.driver.activate_app(app_package)
-            
+
             # Actualizar tracking de app actual y listado de apps usadas
             self._current_app_package = app_package
             self._used_app_packages.add(app_package)
-            
+
             # Pausa para estabilización de la UI
             time.sleep(1.0)
+
+            # Verificar que la app llegó a foreground (actualiza _app_states)
+            new_state, new_state_name = self.query_app_state(app_package)
+            app_is_in_foreground = new_state == self.APP_STATE["FOREGROUND"]
+            if not app_is_in_foreground:
+                logger.debug(f"AGENT_TOOLS: App aún no en foreground ({new_state_name}), esperando...")
+                time.sleep(1.0)
+                self.query_app_state(app_package)
             
             elapsed_ms = int((time.time() - start_time) * 1000)
             success_msg = f"Success: Activated app '{app_package}'"
@@ -996,11 +1005,18 @@ class AppiumSkills:
             # Actualizar tracking si era la app activa
             if self._current_app_package == app_package:
                 self._current_app_package = None
-            
+
             time.sleep(self.min_wait_timeout)
-            
+
+            # Verificar que la app ya no está corriendo (actualiza _app_states)
+            new_state, _ = self.query_app_state(app_package)
+            if new_state >= self.APP_STATE["BACKGROUND"]:
+                # App todavía está activa, esperar un poco más
+                time.sleep(0.5)
+                self.query_app_state(app_package)
+
             elapsed_ms = int((time.time() - start_time) * 1000)
-            
+
             if result:
                 success_msg = f"Success: Terminated app '{app_package}'"
                 logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
@@ -1166,3 +1182,186 @@ class AppiumSkills:
         se ha consultado mediante query_app_state().
         """
         return dict(self._app_states)
+
+    # =========================================================================
+    # HERRAMIENTAS DE INTEGRACIÓN EXTERNA
+    # =========================================================================
+
+    def _fetch_confirmation_code_from_webhook(self, email: str) -> str:
+        """
+        Consulta el webhook de n8n para obtener el código de confirmación.
+        
+        Esta función realiza una única consulta al webhook y retorna el código
+        si está disponible, o lanza una excepción si hay algún problema.
+        
+        Args:
+            email: Dirección de correo electrónico a la que se envió el código
+            
+        Returns:
+            Código de confirmación de 4 dígitos como string
+            
+        Raises:
+            requests.exceptions.RequestException: Si hay error de red o HTTP
+            ValueError: Si la respuesta es inválida o el código no está disponible
+        """
+        # URL del webhook de n8n
+        webhook_url = "https://n8n-develop.imagineapps.co/webhook/gofixi/confirmation-code"
+        
+        # Headers con autenticación
+        headers = {
+            "Content-Type": "application/json",
+            "gofixiAuth": "4GEsYiZHMKDSPp4",
+        }
+        
+        # Body con el correo
+        body = {"to": email}
+        
+        logger.info(f"AGENT_TOOLS: 📡 Consultando webhook...")
+        
+        # Hacer POST al webhook
+        response = requests.post(
+            webhook_url,
+            headers=headers,
+            json=body,
+            timeout=10  # Timeout de 10 segundos por request
+        )
+        
+        logger.debug(f"AGENT_TOOLS: 📊 Status de respuesta: {response.status_code}")
+        
+        # Verificar que la respuesta sea exitosa
+        if not response.ok:
+            raise requests.exceptions.HTTPError(
+                f"HTTP error! Status: {response.status_code}"
+            )
+        
+        # Obtener el texto de la respuesta primero
+        response_text = response.text
+        logger.debug(f"AGENT_TOOLS: 📥 Respuesta raw: {response_text[:100]}...")
+        
+        # Validar que la respuesta no esté vacía
+        if not response_text or response_text.strip() == "":
+            raise ValueError("Respuesta vacía del servidor")
+        
+        # Parsear JSON
+        try:
+            response_data = response.json()
+        except ValueError as json_error:
+            raise ValueError(f"Respuesta no es JSON válido: {response_text[:100]}")
+        
+        logger.debug(f"AGENT_TOOLS: 📥 Respuesta parseada: {response_data}")
+        
+        # Extraer el código de la respuesta
+        # El webhook retorna el código en el campo "code"
+        extracted_code = None
+        if isinstance(response_data, dict):
+            extracted_code = response_data.get("code")
+        
+        # Validar que el código no sea null o "null"
+        if extracted_code is None or extracted_code == "null" or not extracted_code:
+            raise ValueError(f"Código no disponible: {response_data}")
+        
+        # Convertir a string y limpiar espacios
+        code_str = str(extracted_code).strip()
+        
+        # Validar que el código tenga exactamente 4 dígitos
+        if not code_str.isdigit() or len(code_str) != 4:
+            raise ValueError(
+                f"El código debe tener exactamente 4 dígitos. Recibido: '{code_str}' (longitud: {len(code_str)})"
+            )
+        
+        return code_str
+
+    def get_confirmation_code(self, email: str) -> str:
+        """
+        Obtiene el código de confirmación enviado por correo electrónico.
+        
+        Esta herramienta consulta un webhook de n8n que retorna el código
+        de verificación más reciente enviado a un correo específico.
+        
+        Implementación basada en el patrón de referencia:
+        - Espera 30 segundos iniciales para que llegue el correo
+        - Realiza hasta 3 reintentos con espera de 3 segundos entre cada uno
+        - Valida que el código tenga exactamente 4 dígitos
+        - Incluye header de autenticación gofixiAuth
+        
+        Útil para:
+        - Recuperación de contraseña (código de 4 dígitos)
+        - Verificación de cuenta (código de confirmación)
+        - Cualquier flujo que requiera código enviado por correo
+        
+        Args:
+            email: Dirección de correo electrónico a la que se envió el código
+                  (ej: "luis.arrieta+pass-recovery-0@imagineapps.co")
+            
+        Returns:
+            Mensaje con el código obtenido en formato: "Success: Confirmation code obtained for EMAIL: CODE=1234"
+            o mensaje de error si no se pudo obtener después de los reintentos
+        """
+        action_name = "get_confirmation_code"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        
+        logger.info(f"AGENT_TOOLS: 📧 Ejecutando {action_name}(email='{email}')")
+        
+        start_time = time.time()
+        
+        # Configuración de reintentos
+        max_retries = 3
+        retry_delay = 3  # segundos entre reintentos
+        initial_wait = 30  # segundos de espera inicial para que llegue el correo
+        
+        try:
+            # PASO 1: Esperar 30 segundos para que llegue el correo
+            logger.info(f"AGENT_TOOLS: 🔑 Esperando {initial_wait} segundos para que llegue el correo...")
+            time.sleep(initial_wait)
+            
+            logger.info(f"AGENT_TOOLS: 📬 Obteniendo código de confirmación para: {email}")
+            
+            code = None
+            last_error = None
+            
+            # PASO 2: Intentar obtener el código con reintentos
+            for attempt in range(1, max_retries + 1):
+                try:
+                    logger.info(f"AGENT_TOOLS: 📡 Intento {attempt}/{max_retries} - Consultando webhook...")
+                    
+                    # Consultar el webhook (lógica extraída a función separada)
+                    code = self._fetch_confirmation_code_from_webhook(email)
+                    
+                    logger.info(f"AGENT_TOOLS: ✓ Código de confirmación obtenido: {code}")
+                    break  # Salir del loop si se obtuvo el código
+                    
+                except Exception as attempt_error:
+                    last_error = attempt_error
+                    logger.warning(f"AGENT_TOOLS: ⚠️  Intento {attempt} falló: {str(attempt_error)}")
+                    
+                    # Si no es el último intento, esperar antes de reintentar
+                    if attempt < max_retries:
+                        logger.info(f"AGENT_TOOLS: ⏳ Esperando {retry_delay} segundos antes de reintentar...")
+                        time.sleep(retry_delay)
+            
+            # PASO 3: Verificar que se obtuvo el código
+            if not code:
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                error_msg = (
+                    f"Error: No se pudo obtener el código después de {max_retries} intentos. "
+                    f"Último error: {str(last_error) if last_error else 'Desconocido'}"
+                )
+                logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+                self._action_stats["failed_actions"] += 1
+                return error_msg
+            
+            # PASO 4: Retornar éxito con el código
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            success_msg = f"Success: Confirmation code obtained for {email}: CODE={code}"
+            logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+            self._action_stats["successful_actions"] += 1
+            return success_msg
+            
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Error: Unexpected error getting confirmation code for email '{email}': {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg

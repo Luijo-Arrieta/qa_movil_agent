@@ -84,6 +84,9 @@ class Config:
     # Si ANDROID_APP_PACKAGE está definido, se considera un proyecto "single-app"
     # (hay una app principal). Si no, se asume proyecto multi-app.
     AUTO_LAUNCH_MAIN_APP: bool = os.getenv("AUTO_LAUNCH_MAIN_APP", "false").lower() == "true"
+    
+    # QAI Version
+    QAI_VERSION: str = os.getenv("QAI_VERSION", "v1")  # "v1" o "v2"
 
     @classmethod
     def debug_print_config(cls) -> None:

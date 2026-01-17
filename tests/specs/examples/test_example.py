@@ -13,7 +13,7 @@ REQUISITOS:
 
 import pytest
 
-from src.test_runner import AITestRunner
+from src import create_qai
 from src.config import Config
 
 
@@ -36,8 +36,8 @@ class TestAIAgentExample:
         test_email = Config.TEST_USER_EMAIL
         test_password = Config.TEST_USER_PASSWORD
 
-        # Crear test runner
-        runner = AITestRunner(driver=driver_setup, objective=objective)
+        # Crear test runner (usa QAI_VERSION de .env)
+        runner = create_qai(driver=driver_setup, objective=objective)
 
         # Definir plan de prueba en lenguaje natural
         test_plan = [
