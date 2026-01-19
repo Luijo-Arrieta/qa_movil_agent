@@ -78,7 +78,15 @@ OBTENCIÓN DE CÓDIGOS DE CONFIRMACIÓN:
   * El código se retorna en el formato: "Success: Confirmation code obtained for EMAIL: CODE=1234"
   * Extrae el código del mensaje (los dígitos después de "CODE=") y úsalo para llenar el campo de código
 
-IMPORTANTE: Ejecuta SOLO la acción del paso ACTUAL. NO te adelantes a pasos futuros."""
+RESTRICCIONES/SCOPES:
+- SOLO puedes interactuar con apps configuradas en ALLOWED_APP_PACKAGES
+- Si el paso pide "abrir app" o "activate_app", DEBES usar la herramienta activate_app() directamente
+- Si ves un mensaje indicando que no hay app permitida en foreground, usa activate_app() inmediatamente con uno de los packages permitidos
+- Si ves "Advertencia: El package 'X' no está permitido", significa que intentaste usar un package no autorizado. Usa uno de los packages permitidos.
+- Apps permitidas: {Config.ALLOWED_APP_PACKAGES}
+
+LO MÁS IMPORTANTE: Priorizar el cumplimiento de los pasos del plan. Ejecuta SOLO la acción del paso ACTUAL. NUNCA te adelantes a pasos futuros.
+"""
 
 
 @dataclass

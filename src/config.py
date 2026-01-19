@@ -4,7 +4,7 @@ Configuración del proyecto - Carga variables de entorno y configuración.
 
 import os
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from dotenv import load_dotenv
 
 # Configurar logging para este módulo
@@ -87,6 +87,16 @@ class Config:
     
     # QAI Version
     QAI_VERSION: str = os.getenv("QAI_VERSION", "v1")  # "v1" o "v2"
+    
+    # Apps permitidas (scope del agente)
+    # Lista de packages de apps que el agente puede ver e interactuar
+    # Separadas por comas, sin espacios (ej: "com.app1,com.app2")
+    _ALLOWED_APP_PACKAGES_STR: Optional[str] = os.getenv("ALLOWED_APP_PACKAGES")
+    ALLOWED_APP_PACKAGES: List[str] = (
+        [pkg.strip() for pkg in _ALLOWED_APP_PACKAGES_STR.split(",") if pkg.strip()]
+        if _ALLOWED_APP_PACKAGES_STR
+        else []
+    )
 
     @classmethod
     def debug_print_config(cls) -> None:
@@ -203,6 +213,13 @@ class Config:
         
         if cls.IMPLICIT_WAIT < 0:
             errors.append(f"IMPLICIT_WAIT debe ser >= 0, actual: {cls.IMPLICIT_WAIT}")
+        
+        # Validar ALLOWED_APP_PACKAGES
+        logger.debug("CONFIG: Validando ALLOWED_APP_PACKAGES...")
+        if not cls.ALLOWED_APP_PACKAGES:
+            errors.append("ALLOWED_APP_PACKAGES no está configurado o está vacío. Debe contener al menos una app permitida (separadas por comas).")
+        else:
+            logger.debug(f"CONFIG: ✓ ALLOWED_APP_PACKAGES configurado con {len(cls.ALLOWED_APP_PACKAGES)} app(s): {cls.ALLOWED_APP_PACKAGES}")
         
         # Log warnings
         for warning in warnings:

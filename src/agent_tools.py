@@ -6,13 +6,15 @@ import time
 import logging
 import traceback
 import requests
-from typing import Optional, Dict, Set
+from typing import Optional, Dict, Set, Union
 from appium.webdriver.common.appiumby import AppiumBy
 from appium.webdriver import Remote
 from selenium.common.exceptions import StaleElementReferenceException
 
 from src.ui_parser import UIParser
 from src.config import Config
+from src.middleware_result import MiddlewareResult, MiddlewareStatus
+from typing import Union
 
 # Configurar logging para este módulo
 logger = logging.getLogger(__name__)
@@ -910,7 +912,7 @@ class AppiumSkills:
             self._action_stats["failed_actions"] += 1
             return -1, f"ERROR: {str(e)}"
 
-    def activate_app(self, app_package: str) -> str:
+    def activate_app(self, app_package: str) -> Union[str, MiddlewareResult]:
         """
         Activa (abre/trae al primer plano) una app instalada.
         
@@ -921,8 +923,13 @@ class AppiumSkills:
             app_package: Package de la app (ej: 'com.imagineapps.gofixiicliente')
             
         Returns:
-            Mensaje de éxito o error
+            Mensaje de éxito, error, o MiddlewareResult si el package no está permitido
         """
+        # Validar scope
+        scope_check = self._validate_app_scope(app_package)
+        if scope_check:
+            return scope_check  # Retornar MiddlewareResult DENIED
+        
         action_name = "activate_app"
         self._action_stats["total_actions"] += 1
         self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
@@ -1037,7 +1044,7 @@ class AppiumSkills:
             self._action_stats["failed_actions"] += 1
             return error_msg
 
-    def switch_to_app(self, app_package: str) -> str:
+    def switch_to_app(self, app_package: str) -> Union[str, MiddlewareResult]:
         """
         Cambia a otra app TERMINANDO la app actual.
         
@@ -1054,8 +1061,13 @@ class AppiumSkills:
             app_package: Package de la app destino
             
         Returns:
-            Mensaje de éxito o error
+            Mensaje de éxito, error, o MiddlewareResult si el package no está permitido
         """
+        # Validar scope
+        scope_check = self._validate_app_scope(app_package)
+        if scope_check:
+            return scope_check  # Retornar MiddlewareResult DENIED
+        
         action_name = "switch_to_app"
         self._action_stats["total_actions"] += 1
         self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
@@ -1069,6 +1081,9 @@ class AppiumSkills:
         if self._current_app_package and self._current_app_package != app_package:
             logger.debug(f"AGENT_TOOLS: Terminando app actual '{self._current_app_package}'...")
             terminate_result = self.terminate_app(self._current_app_package)
+            if isinstance(terminate_result, MiddlewareResult):
+                # Si terminate_app retornó MiddlewareResult, propagarlo
+                return terminate_result
             if "Error" in terminate_result:
                 logger.warning(f"AGENT_TOOLS WARNING: Problema al terminar app: {terminate_result}")
                 # Continuamos de todos modos
@@ -1078,6 +1093,9 @@ class AppiumSkills:
         
         elapsed_ms = int((time.time() - start_time) * 1000)
         
+        if isinstance(activate_result, MiddlewareResult):
+            return activate_result
+        
         if "Error" in activate_result:
             logger.error(f"AGENT_TOOLS ERROR: Fallo al cambiar a '{app_package}'")
             return activate_result
@@ -1086,7 +1104,7 @@ class AppiumSkills:
         logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
         return success_msg
 
-    def switch_to_app_keep_background(self, app_package: str) -> str:
+    def switch_to_app_keep_background(self, app_package: str) -> Union[str, MiddlewareResult]:
         """
         Cambia a otra app MANTENIENDO la app actual en background.
         
@@ -1103,8 +1121,13 @@ class AppiumSkills:
             app_package: Package de la app destino
             
         Returns:
-            Mensaje de éxito o error
+            Mensaje de éxito, error, o MiddlewareResult si el package no está permitido
         """
+        # Validar scope
+        scope_check = self._validate_app_scope(app_package)
+        if scope_check:
+            return scope_check  # Retornar MiddlewareResult DENIED
+        
         action_name = "switch_to_app_keep_background"
         self._action_stats["total_actions"] += 1
         self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
@@ -1128,6 +1151,9 @@ class AppiumSkills:
         activate_result = self.activate_app(app_package)
         
         elapsed_ms = int((time.time() - start_time) * 1000)
+        
+        if isinstance(activate_result, MiddlewareResult):
+            return activate_result
         
         if "Error" in activate_result:
             logger.error(f"AGENT_TOOLS ERROR: Fallo al cambiar a '{app_package}'")

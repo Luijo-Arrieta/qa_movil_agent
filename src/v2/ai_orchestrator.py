@@ -88,7 +88,15 @@ DETECCIÓN DE PASOS SIGUIENTES:
 - Si ejecutaste una acción que te llevó a la pantalla del siguiente paso → también está completo
 - Ejemplo: "Tocar botón login" → Si el resultado es "Success: Clicked" y ahora estás en la pantalla principal → el paso "Iniciar sesión" está completo
 
-IMPORTANTE: Ejecuta SOLO la acción del paso ACTUAL. NO te adelantes a pasos futuros."""
+RESTRICCIONES/SCOPES:
+- SOLO puedes interactuar con apps configuradas en ALLOWED_APP_PACKAGES
+- Si el paso pide "abrir app" o "activate_app", DEBES usar la herramienta activate_app() directamente
+- Si ves un mensaje indicando que no hay app permitida en foreground, usa activate_app() inmediatamente con uno de los packages permitidos
+- Si ves "Advertencia: El package 'X' no está permitido", significa que intentaste usar un package no autorizado. Usa uno de los packages permitidos.
+- Apps permitidas: {Config.ALLOWED_APP_PACKAGES}
+
+LO MÁS IMPORTANTE: Priorizar el cumplimiento de los pasos del plan. Ejecuta SOLO la acción del paso ACTUAL. Si el paso siguiente es una validación, puedes deducirla de la respuesta del paso actual y marcar el paso siguiente como completado.
+"""
 
 
 @dataclass

@@ -10,12 +10,13 @@ https://github.com/toon-format/toon
 import xml.etree.ElementTree as ET
 import logging
 import traceback
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union
 from typing_extensions import TypedDict
 import re
 import json
 
 from toon_format import encode as toon_encode
+from src.middleware_result import MiddlewareResult, MiddlewareStatus
 
 # Configurar logging para este módulo
 logger = logging.getLogger(__name__)
@@ -94,7 +95,12 @@ class UIParser:
             "filtered_out": 0,
         }
 
-    def parse_screen(self, xml_source: str) -> List[UIElement]:
+    def parse_screen(
+        self, 
+        xml_source: str, 
+        current_package: Optional[str] = None, 
+        allowed_packages: Optional[List[str]] = None
+    ) -> Union[List[UIElement], MiddlewareResult]:
         """
         Parsea el XML y retorna lista de elementos interactuables.
 
@@ -106,9 +112,16 @@ class UIParser:
 
         Args:
             xml_source: String con el XML completo de page_source
+            current_package: Package de la app actual en foreground (opcional)
+            allowed_packages: Lista de packages permitidos (opcional)
 
         Returns:
-            Lista de UIElement con estructura:
+            Lista de UIElement o MiddlewareResult si la app actual no está permitida.
+            
+            Si retorna MiddlewareResult, significa que la app actual no está en allowed_packages
+            y el agente debe usar activate_app() para abrir una app permitida.
+            
+            Si retorna List[UIElement], contiene elementos con estructura:
             {
                 "id": int,  # ID para usar en tool calls (touch_element_by_id, fill_field_by_id)
                 "attrs": [  # Lista de atributos con estructura fija {name, value}
@@ -134,6 +147,22 @@ class UIParser:
         logger.debug("=" * 70)
         logger.debug("UIPARSER: Iniciando parseo de pantalla")
         logger.debug("=" * 70)
+        
+        # Validar scope de app si se proporcionan allowed_packages
+        if allowed_packages:
+            if not current_package or current_package not in allowed_packages:
+                # App no permitida o launcher/sistema
+                allowed_str = ", ".join(allowed_packages)
+                logger.warning(
+                    f"UIPARSER: App actual '{current_package}' no está en allowed_packages. "
+                    f"Apps permitidas: {allowed_packages}"
+                )
+                return MiddlewareResult(
+                    status=MiddlewareStatus.DENIED,
+                    message=f"No hay app permitida en foreground. Apps permitidas: {allowed_str}. Usa activate_app(app_package) para abrir una app permitida.",
+                    allowed_apps=allowed_packages,
+                    suggested_tool="activate_app"
+                )
         
         # Reset estadísticas
         self._parse_stats = {

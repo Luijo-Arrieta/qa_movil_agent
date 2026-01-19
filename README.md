@@ -115,6 +115,11 @@ ANDROID_APP_PATH=D:/Imagine/gofixi/utils/apk/2025-12-19-cliente.apk
 ANDROID_APP_PACKAGE=com.imagineapps.gofixiicliente
 ANDROID_APP_ACTIVITY=.MainActivity
 
+# Apps permitidas (scope del agente)
+# El agente SOLO podrá interactuar con estas apps
+# Separadas por comas, sin espacios (ej: "com.app1,com.app2")
+ALLOWED_APP_PACKAGES=com.imagineapps.gofixiicliente,com.imagineapps.gofixiitecnico
+
 # Configuración avanzada de Appium
 ANDROID_AUTOMATION_NAME=UiAutomator2
 ANDROID_AUTO_GRANT_PERMISSIONS=true

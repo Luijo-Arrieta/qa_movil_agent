@@ -188,6 +188,11 @@ class QAIV2TestRunner:
         self.ai_orchestrator = QAIV2Orchestrator()
         logger.debug("TEST_RUNNER: ✓ QAIV2Orchestrator creado")
         
+        # Validar que todas las apps permitidas estén instaladas
+        logger.info("TEST_RUNNER: Validando que apps permitidas estén instaladas...")
+        self._validate_allowed_apps_installed()
+        logger.info("TEST_RUNNER: ✓ Todas las apps permitidas están instaladas")
+        
         # Contexto global del agente para el paso actual
         self.current_context: Optional[StepContext] = None
         # V2: action_history incluye resultados (formato dict)
@@ -999,3 +1004,32 @@ class QAIV2TestRunner:
         logger.info(f"║    Próximo ID: {self.ui_parser.current_id}")
         logger.info("╚" + "═" * 60 + "╝")
 
+    def _validate_allowed_apps_installed(self) -> None:
+        """
+        Valida que todas las apps en ALLOWED_APP_PACKAGES estén instaladas en el dispositivo.
+        
+        Raises:
+            ValueError: Si alguna app no está instalada
+        """
+        if not Config.ALLOWED_APP_PACKAGES:
+            # Ya validado en Config.validate(), pero por seguridad
+            raise ValueError("ALLOWED_APP_PACKAGES está vacío. Configura al menos una app permitida.")
+        
+        for app_package in Config.ALLOWED_APP_PACKAGES:
+            try:
+                state_code, state_name = self.agent_tools.query_app_state(app_package)
+                if state_code == 0:  # NOT_INSTALLED
+                    raise ValueError(
+                        f"App '{app_package}' de ALLOWED_APP_PACKAGES no está instalada en el dispositivo. "
+                        f"Estado: {state_name}. Instala la app o actualiza ALLOWED_APP_PACKAGES en .env"
+                    )
+                logger.debug(f"TEST_RUNNER: ✓ App '{app_package}' instalada (estado: {state_name})")
+            except Exception as e:
+                if isinstance(e, ValueError):
+                    raise
+                # Si hay error al consultar el estado, asumir que no está instalada
+                logger.error(f"TEST_RUNNER ERROR: No se pudo verificar estado de app '{app_package}': {e}")
+                raise ValueError(
+                    f"No se pudo verificar si la app '{app_package}' está instalada. "
+                    f"Error: {str(e)}"
+                )
