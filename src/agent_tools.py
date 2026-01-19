@@ -6,7 +6,7 @@ import time
 import logging
 import traceback
 import requests
-from typing import Optional, Dict, Set, Union
+from typing import Optional, Dict, Set, Union, Any
 from appium.webdriver.common.appiumby import AppiumBy
 from appium.webdriver import Remote
 from selenium.common.exceptions import StaleElementReferenceException
@@ -14,6 +14,7 @@ from selenium.common.exceptions import StaleElementReferenceException
 from src.ui_parser import UIParser
 from src.config import Config
 from src.middleware_result import MiddlewareResult, MiddlewareStatus
+from src.validators import validate_app_scope
 from typing import Union
 
 # Configurar logging para este módulo
@@ -912,7 +913,7 @@ class AppiumSkills:
             self._action_stats["failed_actions"] += 1
             return -1, f"ERROR: {str(e)}"
 
-    def activate_app(self, app_package: str) -> Union[str, MiddlewareResult]:
+    def activate_app(self, app_package: str) -> Union[str, MiddlewareResult, Dict[str, Any]]:
         """
         Activa (abre/trae al primer plano) una app instalada.
         
@@ -926,7 +927,7 @@ class AppiumSkills:
             Mensaje de éxito, error, o MiddlewareResult si el package no está permitido
         """
         # Validar scope
-        scope_check = self._validate_app_scope(app_package)
+        scope_check = validate_app_scope(app_package)
         if scope_check:
             return scope_check  # Retornar MiddlewareResult DENIED
         
@@ -971,6 +972,28 @@ class AppiumSkills:
             success_msg = f"Success: Activated app '{app_package}'"
             logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
             self._action_stats["successful_actions"] += 1
+            
+            # V2: Obtener UI automáticamente después de activar la app
+            # Esto permite que el agente vea inmediatamente el estado de la app
+            if self.ui_parser:
+                try:
+                    logger.debug(f"AGENT_TOOLS: Obteniendo UI después de activar app...")
+                    ui_result = self.ui_parser.get_ui(wait_stable=True, timeout=3.0)
+                    if isinstance(ui_result, list) and len(ui_result) > 0:
+                        # UI obtenida exitosamente, se incluirá en el resultado
+                        logger.debug(f"AGENT_TOOLS: ✓ UI obtenida ({len(ui_result)} elementos)")
+                        # Retornar mensaje con indicador de que UI está disponible
+                        # El test runner extraerá la UI del resultado
+                        return {
+                            "message": success_msg,
+                            "ui_available": True,
+                            "ui_elements": ui_result
+                        }
+                    else:
+                        logger.debug(f"AGENT_TOOLS: UI no disponible o denegada")
+                except Exception as ui_error:
+                    logger.warning(f"AGENT_TOOLS: No se pudo obtener UI después de activate_app: {ui_error}")
+            
             return success_msg
             
         except Exception as e:
@@ -981,7 +1004,7 @@ class AppiumSkills:
             self._action_stats["failed_actions"] += 1
             return error_msg
 
-    def terminate_app(self, app_package: str) -> str:
+    def terminate_app(self, app_package: str) -> Union[str, MiddlewareResult]:
         """
         Termina (cierra completamente) una app.
         
@@ -992,8 +1015,13 @@ class AppiumSkills:
             app_package: Package de la app a cerrar
             
         Returns:
-            Mensaje de éxito o error
+            Mensaje de éxito, error, o MiddlewareResult si el package no está permitido
         """
+        # Validar scope
+        scope_check = validate_app_scope(app_package)
+        if scope_check:
+            return scope_check  # Retornar MiddlewareResult DENIED
+        
         action_name = "terminate_app"
         self._action_stats["total_actions"] += 1
         self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
@@ -1064,7 +1092,7 @@ class AppiumSkills:
             Mensaje de éxito, error, o MiddlewareResult si el package no está permitido
         """
         # Validar scope
-        scope_check = self._validate_app_scope(app_package)
+        scope_check = validate_app_scope(app_package)
         if scope_check:
             return scope_check  # Retornar MiddlewareResult DENIED
         
@@ -1124,7 +1152,7 @@ class AppiumSkills:
             Mensaje de éxito, error, o MiddlewareResult si el package no está permitido
         """
         # Validar scope
-        scope_check = self._validate_app_scope(app_package)
+        scope_check = validate_app_scope(app_package)
         if scope_check:
             return scope_check  # Retornar MiddlewareResult DENIED
         

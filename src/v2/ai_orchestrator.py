@@ -53,7 +53,7 @@ IMPORTANTE - USO DE IDs:
 INSTRUCCIONES:
 1. Busca el elemento correcto por sus atributos (content-desc, text, class)
 2. Usa el "id" de ese elemento en la herramienta correspondiente
-3. Ejecuta SOLO UNA acción por turno
+3. Puedes ejecutar MÚLTIPLES acciones en el mismo turno si todas pertenecen al paso actual
 4. Para campos de texto (class contiene "EditText"), usa fill_field_by_id
 5. Para hacer click, usa touch_element_by_id
 6. Si no encuentras un elemento, usa scroll
@@ -84,9 +84,34 @@ INTERPRETACIÓN DE RESULTADOS DE TOOLS:
 - Usa los resultados del "Historial de ejecución" para determinar si el paso está completo
 - Si el resultado indica éxito y el paso pide esa acción → paso completo
 
-DETECCIÓN DE PASOS SIGUIENTES:
-- Si ejecutaste una acción que te llevó a la pantalla del siguiente paso → también está completo
-- Ejemplo: "Tocar botón login" → Si el resultado es "Success: Clicked" y ahora estás en la pantalla principal → el paso "Iniciar sesión" está completo
+SELECCIÓN DE ELEMENTOS - REGLAS DE PRIORIDAD:
+Cuando hay múltiples opciones similares, usa estas reglas para elegir el elemento correcto:
+
+1. COINCIDENCIA EXACTA CON EL PASO ANTERIOR:
+   - Si el paso anterior menciona una acción específica (ej: "Cerrar sesión") y hay un botón con ese texto exacto → ÚSALO
+   - Prioriza elementos cuyo texto coincide exactamente con la acción mencionada en pasos anteriores
+
+2. ESPECIFICIDAD:
+   - Prefiere opciones específicas sobre genéricas:
+     * "Cerrar sesión" > "Salir" (cuando el contexto es cerrar sesión)
+     * "Confirmar eliminación" > "Confirmar" (cuando el paso es eliminar)
+     * "Eliminar cuenta" > "Eliminar" (cuando el paso es eliminar cuenta)
+   - Un texto más específico indica mayor alineación con la acción requerida
+
+3. CONTEXTO DEL PASO ACTUAL:
+   - El texto del paso actual debe guiar tu elección
+   - Paso: "Confirmar el cierre de sesión" → Busca botones relacionados con "cerrar sesión"
+   - Paso: "Abrir menú de cuenta" → Busca elementos relacionados con "cuenta" o "perfil"
+
+4. RESOLUCIÓN DE AMBIGÜEDAD:
+   - Si hay ambigüedad, revisa el historial de acciones y el paso anterior
+   - Considera la secuencia lógica: ¿qué acción se ejecutó antes? ¿qué pantalla debería aparecer después?
+   - El elemento que mejor encaja en la secuencia lógica es el correcto
+
+DIÁLOGOS DE CONFIRMACIÓN:
+- Cuando un paso pide "confirmar" algo y aparece un diálogo, ejecuta la acción de confirmación (tocar el botón de confirmar)
+- En diálogos, elige el botón que MÁS ESPECÍFICAMENTE coincide con la acción que estás confirmando
+- Ejemplo: Si el paso anterior fue "Cerrar sesión" y el diálogo tiene "Salir" y "Cerrar sesión" → Elige "Cerrar sesión"
 
 RESTRICCIONES/SCOPES:
 - SOLO puedes interactuar con apps configuradas en ALLOWED_APP_PACKAGES
@@ -95,7 +120,12 @@ RESTRICCIONES/SCOPES:
 - Si ves "Advertencia: El package 'X' no está permitido", significa que intentaste usar un package no autorizado. Usa uno de los packages permitidos.
 - Apps permitidas: {Config.ALLOWED_APP_PACKAGES}
 
-LO MÁS IMPORTANTE: Priorizar el cumplimiento de los pasos del plan. Ejecuta SOLO la acción del paso ACTUAL. Si el paso siguiente es una validación, puedes deducirla de la respuesta del paso actual y marcar el paso siguiente como completado.
+LO MÁS IMPORTANTE: 
+- Ejecuta SOLO acciones del paso ACTUAL
+- NUNCA ejecutes acciones de pasos futuros, aunque los veas como completos
+- Puedes ejecutar MÚLTIPLES acciones en el mismo paso si todas son necesarias para completarlo
+- Ejemplo: Si el paso es "Llenar formulario de login", puedes ejecutar fill_field_by_id para email Y fill_field_by_id para password en el mismo turno
+- El paso solo se completa cuando TODAS las acciones requeridas del paso actual han sido ejecutadas exitosamente
 """
 
 
@@ -871,7 +901,6 @@ class QAIV2Orchestrator:
         Returns:
             {
                 "step_completed": bool,
-                "next_step_completed": bool,
                 "reason": str
             }
         """
@@ -912,7 +941,7 @@ class QAIV2Orchestrator:
             
             # Parsear respuesta TOON
             parsed = self._parse_completion_response(result)
-            logger.info(f"AI_ORCHESTRATOR: step_completed={parsed.get('step_completed')}, next_step_completed={parsed.get('next_step_completed')}")
+            logger.info(f"AI_ORCHESTRATOR: step_completed={parsed.get('step_completed')}")
             
             return parsed
             
@@ -925,7 +954,6 @@ class QAIV2Orchestrator:
             # Retornar valores por defecto en caso de error
             return {
                 "step_completed": False,
-                "next_step_completed": False,
                 "reason": f"Error checking completion: {str(e)}"
             }
     
@@ -1009,8 +1037,8 @@ class QAIV2Orchestrator:
         Parsea respuesta TOON del LLM para completitud.
         
         Formato esperado:
-        [1]{step_completed|next_step_completed|reason}:
-          0|true|false|"Explicación breve"
+        [1]{step_completed|reason}:
+          0|true|"Explicación breve"
         """
         try:
             from toon_format import decode as toon_decode
@@ -1042,7 +1070,6 @@ class QAIV2Orchestrator:
             if decoded and len(decoded) > 0:
                 row = decoded[0]
                 step_completed = str(row.get('step_completed', 'false')).lower() == 'true'
-                next_step_completed = str(row.get('next_step_completed', 'false')).lower() == 'true'
                 reason = row.get('reason', 'No reason provided')
                 # Remover comillas si las hay
                 if isinstance(reason, str) and reason.startswith('"') and reason.endswith('"'):
@@ -1050,7 +1077,6 @@ class QAIV2Orchestrator:
                 
                 return {
                     "step_completed": step_completed,
-                    "next_step_completed": next_step_completed,
                     "reason": reason
                 }
             else:
@@ -1068,11 +1094,9 @@ class QAIV2Orchestrator:
         response_lower = response_text.lower()
         
         step_completed = "completado" in response_lower or "completo" in response_lower or "true" in response_lower
-        next_step_completed = "siguiente" in response_lower and ("completado" in response_lower or "completo" in response_lower)
         
         return {
             "step_completed": step_completed,
-            "next_step_completed": next_step_completed,
             "reason": response_text[:200]  # Primeros 200 chars como razón
         }
     
@@ -1088,17 +1112,12 @@ INTERPRETACIÓN DE RESULTADOS DE TOOLS:
 - Usa los resultados para determinar si el paso está completo
 - Si el resultado indica éxito y el paso pide esa acción → paso completo
 
-DETECCIÓN DE PASOS SIGUIENTES:
-- Si ejecutaste una acción que te llevó a la pantalla del siguiente paso → también está completo
-- Ejemplo: "Tocar botón login" → Si el resultado es "Success: Clicked" y ahora estás en la pantalla principal → el paso "Iniciar sesión" está completo
-
 RESPUESTA EN FORMATO TOON:
 Responde con un bloque TOON con la siguiente estructura:
-[1]{step_completed|next_step_completed|reason}:
-  0|true|false|"Explicación breve"
+[1]{step_completed|reason}:
+  0|true|"Explicación breve"
 
 - step_completed: "true" o "false"
-- next_step_completed: "true" o "false"
 - reason: Texto explicativo breve entre comillas"""
         
         messages = [
@@ -1132,17 +1151,12 @@ INTERPRETACIÓN DE RESULTADOS DE TOOLS:
 - Usa los resultados para determinar si el paso está completo
 - Si el resultado indica éxito y el paso pide esa acción → paso completo
 
-DETECCIÓN DE PASOS SIGUIENTES:
-- Si ejecutaste una acción que te llevó a la pantalla del siguiente paso → también está completo
-- Ejemplo: "Tocar botón login" → Si el resultado es "Success: Clicked" y ahora estás en la pantalla principal → el paso "Iniciar sesión" está completo
-
 RESPUESTA EN FORMATO TOON:
 Responde con un bloque TOON con la siguiente estructura:
-[1]{step_completed|next_step_completed|reason}:
-  0|true|false|"Explicación breve"
+[1]{step_completed|reason}:
+  0|true|"Explicación breve"
 
 - step_completed: "true" o "false"
-- next_step_completed: "true" o "false"
 - reason: Texto explicativo breve entre comillas"""
         
         try:

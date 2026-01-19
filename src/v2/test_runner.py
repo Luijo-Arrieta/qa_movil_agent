@@ -20,6 +20,8 @@ from src.ui_parser import UIParser
 from src.agent_tools import AppiumSkills
 from src.v2.ai_orchestrator import QAIV2Orchestrator, StepContext
 from src.config import Config
+from src.middleware_result import MiddlewareResult
+from src.validators import validate_config, validate_driver, is_recoverable_error
 
 # Importar Allure de forma opcional (solo disponible en tests)
 try:
@@ -28,19 +30,6 @@ try:
 except ImportError:
     ALLURE_AVAILABLE = False
 
-# Importar excepciones de Selenium/Appium para identificar errores recuperables
-try:
-    from selenium.common.exceptions import (
-        TimeoutException,
-        NoSuchElementException,
-        ElementNotInteractableException,
-        StaleElementReferenceException,
-        WebDriverException,
-    )
-    SELENIUM_EXCEPTIONS_AVAILABLE = True
-except ImportError:
-    SELENIUM_EXCEPTIONS_AVAILABLE = False
-
 # Configurar logging con formato detallado
 logging.basicConfig(
     level=logging.DEBUG,  # Cambiado a DEBUG para máxima visibilidad
@@ -48,82 +37,6 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
-
-
-def _is_recoverable_error(exception: Exception) -> bool:
-    """
-    Determina si un error es recuperable (debe reintentarse) o no recuperable.
-    
-    Errores NO recuperables (no deben reintentarse):
-    - ValueError: Datos inválidos, estructura incorrecta
-    - KeyError: Clave faltante en diccionario
-    - TypeError: Tipos incorrectos
-    - AttributeError: Atributo faltante
-    - SyntaxError: Error de sintaxis
-    - NameError: Nombre no definido
-    - ImportError: Error de importación
-    - ConfigurationError: Errores de configuración
-    
-    Errores SÍ recuperables (deben reintentarse):
-    - TimeoutException: Timeouts temporales
-    - NoSuchElementException: Elemento no encontrado (puede aparecer después)
-    - ElementNotInteractableException: Elemento no interactuable (puede cambiar)
-    - StaleElementReferenceException: Referencia obsoleta (puede resolverse)
-    - WebDriverException: Algunos errores temporales del driver
-    
-    Args:
-        exception: Excepción a evaluar
-        
-    Returns:
-        True si el error es recuperable (debe reintentarse), False si no
-    """
-    # Errores NO recuperables - errores de programación/configuración
-    non_recoverable_errors = (
-        ValueError,
-        KeyError,
-        TypeError,
-        AttributeError,
-        SyntaxError,
-        NameError,
-        ImportError,
-        IndentationError,
-        UnicodeError,
-    )
-    
-    # Verificar si es un error no recuperable
-    if isinstance(exception, non_recoverable_errors):
-        return False
-    
-    # Errores recuperables - errores temporales de Appium/Selenium
-    if SELENIUM_EXCEPTIONS_AVAILABLE:
-        recoverable_errors = (
-            TimeoutException,
-            NoSuchElementException,
-            ElementNotInteractableException,
-            StaleElementReferenceException,
-        )
-        
-        if isinstance(exception, recoverable_errors):
-            return True
-        
-        # WebDriverException puede ser recuperable o no, depende del caso
-        # Por defecto, lo consideramos recuperable (puede ser temporal)
-        if isinstance(exception, WebDriverException):
-            # Algunos WebDriverException son no recuperables (ej: driver desconectado)
-            error_msg = str(exception).lower()
-            non_recoverable_patterns = [
-                "session not created",
-                "invalid session id",
-                "no such session",
-                "session deleted",
-            ]
-            if any(pattern in error_msg for pattern in non_recoverable_patterns):
-                return False
-            return True
-    
-    # Por defecto, si no podemos determinar, asumimos que NO es recuperable
-    # para evitar loops infinitos con errores desconocidos
-    return False
 
 
 class QAIV2TestRunner:
@@ -154,30 +67,19 @@ class QAIV2TestRunner:
         #Config.debug_print_config()
         
         # Validar configuración
-        logger.info("TEST_RUNNER: Validando configuración...")
-        is_valid, error_msg = Config.validate()
-        if not is_valid:
-            logger.error(f"TEST_RUNNER ERROR: Configuración inválida: {error_msg}")
-            raise ValueError(f"Configuración inválida: {error_msg}")
-        logger.info("TEST_RUNNER: ✓ Configuración válida")
+        validate_config()
         
         self.driver = driver
         self.objective = objective
         
         # Verificar driver
-        logger.debug("TEST_RUNNER: Verificando driver de Appium...")
-        try:
-            session_id = driver.session_id
-            logger.info(f"TEST_RUNNER: ✓ Driver activo - Session ID: {session_id}")
-        except Exception as e:
-            logger.error(f"TEST_RUNNER ERROR: Driver no disponible: {e}")
-            raise
+        validate_driver(driver)
         
         # Inicializar componentes
         logger.info("TEST_RUNNER: Inicializando componentes...")
         
         logger.debug("TEST_RUNNER: Creando UIParser...")
-        self.ui_parser = UIParser()
+        self.ui_parser = UIParser(driver=self.driver)
         logger.debug("TEST_RUNNER: ✓ UIParser creado")
         
         logger.debug("TEST_RUNNER: Creando AppiumSkills...")
@@ -187,11 +89,6 @@ class QAIV2TestRunner:
         logger.debug("TEST_RUNNER: Creando QAIV2Orchestrator...")
         self.ai_orchestrator = QAIV2Orchestrator()
         logger.debug("TEST_RUNNER: ✓ QAIV2Orchestrator creado")
-        
-        # Validar que todas las apps permitidas estén instaladas
-        logger.info("TEST_RUNNER: Validando que apps permitidas estén instaladas...")
-        self._validate_allowed_apps_installed()
-        logger.info("TEST_RUNNER: ✓ Todas las apps permitidas están instaladas")
         
         # Contexto global del agente para el paso actual
         self.current_context: Optional[StepContext] = None
@@ -405,42 +302,52 @@ class QAIV2TestRunner:
                     logger.info(f"  ┌─ Loop agéntico iteración {loop_iteration} ─┐")
                     
                     # ══════════════════════════════════════════════════════════════
-                    # FASE 1: Obtener XML ACTUALIZADO del driver (con espera de estabilidad)
+                    # FASE: Obtener UI actual (UIParser maneja todo internamente)
                     # ══════════════════════════════════════════════════════════════
-                    #logger.debug("  │ FASE 1: Obteniendo XML de la pantalla (con espera de estabilidad)...")
-                    phase1_start = time.time()
+                    # UIParser.get_ui() encapsula:
+                    # - Espera de estabilidad de UI
+                    # - Obtención de XML y current_package
+                    # - Validación de middleware (scope de apps)
+                    # - Parseo de elementos
+                    # Retorna List[UIElement] o MiddlewareResult
+                    phase_start = time.time()
                     try:
-                        # Usar get_screen_tree_stable para manejar pantallas de carga
-                        xml_source = self.agent_tools.get_screen_tree_stable()
-                        phase1_time = int((time.time() - phase1_start) * 1000)
-                        #logger.debug(f"  │ FASE 1: ✓ XML estable obtenido en {phase1_time}ms ({len(xml_source)} chars)")
-                    except Exception as e:
-                        logger.error(f"  │ FASE 1 ERROR: No se pudo obtener XML: {e}")
-                        logger.error(f"  │ Traceback:\n{traceback.format_exc()}")
-                        raise
-
-                    # ══════════════════════════════════════════════════════════════
-                    # FASE 2: UIParser parsea XML y genera JSON con estado ACTUAL
-                    # ══════════════════════════════════════════════════════════════
-                    #logger.debug("  │ FASE 2: Parseando UI...")
-                    phase2_start = time.time()
-                    try:
-                        ui_elements = self.ui_parser.parse_screen(xml_source)
-                        phase2_time = int((time.time() - phase2_start) * 1000)
-                        logger.info(f"  │ FASE 2: ✓ {len(ui_elements)} elementos encontrados en {phase2_time}ms")
+                        parse_result = self.ui_parser.get_ui()
+                        phase_time = int((time.time() - phase_start) * 1000)
                         
-                        # Mostrar elementos encontrados
-                        if ui_elements:
-                            #logger.debug("  │ FASE 2: Elementos disponibles:")
-                            #logger.debug(f"  │ {json.dumps(ui_elements, indent=2, ensure_ascii=False)}")
-                            # DEBUG: Dump del mapeo completo (solo primera iteración del loop)
-                            if loop_iteration == 1:
-                                #logger.debug("  │ FASE 2: Dump del mapeo ID→XPath:")
-                                self.ui_parser.debug_dump_element_map(log_output=False)
+                        # El middleware retorna MiddlewareResult o List[UIElement]
+                        if isinstance(parse_result, MiddlewareResult):
+                            # Middleware denegó: app no permitida
+                            ui_elements = []
+                            logger.warning(f"  │ ⚠️  Middleware denegado ({phase_time}ms)")
+                            logger.warning(f"  │ {parse_result.message}")
+                            # Inyectar mensaje en action_history para que el agente lo vea
+                            self.action_history.append({
+                                "index": len(self.action_history) + 1,
+                                "action": "get_ui_elements",
+                                "result": parse_result.message,
+                                "success": False,
+                                "middleware_denied": True,
+                                "allowed_apps": parse_result.allowed_apps,
+                                "suggested_tool": parse_result.suggested_tool
+                            })
                         else:
-                            logger.warning("  │ FASE 2 WARNING: No se encontraron elementos interactuables")
-                            # DEBUG: Dump para diagnosticar por qué no hay elementos
-                            self.ui_parser.debug_dump_element_map(log_output=True)
+                            # Resultado normal: lista de elementos
+                            ui_elements = parse_result
+                            logger.info(f"  │ ✓ {len(ui_elements)} elementos encontrados en {phase_time}ms")
+                            
+                            # Mostrar elementos encontrados
+                            if ui_elements:
+                                #logger.debug("  │ FASE 2: Elementos disponibles:")
+                                #logger.debug(f"  │ {json.dumps(ui_elements, indent=2, ensure_ascii=False)}")
+                                # DEBUG: Dump del mapeo completo (solo primera iteración del loop)
+                                if loop_iteration == 1:
+                                    #logger.debug("  │ FASE 2: Dump del mapeo ID→XPath:")
+                                    self.ui_parser.debug_dump_element_map(log_output=False)
+                            else:
+                                logger.warning("  │ FASE 2 WARNING: No se encontraron elementos interactuables")
+                                # DEBUG: Dump para diagnosticar por qué no hay elementos
+                                self.ui_parser.debug_dump_element_map(log_output=True)
                     except Exception as e:
                         logger.error(f"  │ FASE 2 ERROR: Fallo al parsear UI: {e}")
                         logger.error(f"  │ Traceback:\n{traceback.format_exc()}")
@@ -506,77 +413,126 @@ class QAIV2TestRunner:
                     # FASE 4: Ejecutar acción o finalizar paso
                     # ══════════════════════════════════════════════════════════════
                     if ai_decision.get("tool_calls"):
-                        logger.debug("  │ FASE 4: Ejecutando acción...")
-                        # Ejecutar UNA acción a la vez para mantener UI actualizada
-                        tool_call = ai_decision["tool_calls"][0]
+                        logger.debug(f"  │ FASE 4: Ejecutando {len(ai_decision['tool_calls'])} acción(es)...")
                         
                         # ══════════════════════════════════════════════════════════════
-                        # DETECCIÓN DE ACCIONES REPETIDAS
-                        # Si la IA intenta la misma acción 3 veces, falla el paso
+                        # V2: Ejecutar MÚLTIPLES tool calls en el mismo paso
+                        # El agente puede ejecutar varias acciones si todas pertenecen al paso actual
                         # ══════════════════════════════════════════════════════════════
-                        current_action_signature = f"{tool_call['name']}:{json.dumps(tool_call['arguments'], sort_keys=True)}"
+                        all_actions_successful = True
+                        last_tool_call = None
+                        last_result_message = None
                         
-                        if current_action_signature == last_action_signature:
-                            repeated_action_count += 1
-                            logger.warning(f"  │ ⚠️ ACCIÓN REPETIDA detectada ({repeated_action_count}/{max_repeated_action_attempts})")
-                            logger.warning(f"  │    Acción: {tool_call['name']}({tool_call['arguments']})")
+                        for tool_call_idx, tool_call in enumerate(ai_decision["tool_calls"]):
+                            logger.info(f"  │ Ejecutando acción {tool_call_idx + 1}/{len(ai_decision['tool_calls'])}: {tool_call['name']}")
                             
-                            if repeated_action_count >= max_repeated_action_attempts:
-                                logger.error("")
-                                logger.error("  ╔" + "═" * 70 + "╗")
-                                logger.error("  ║ ❌ ERROR: LÍMITE DE ACCIONES REPETIDAS ALCANZADO")
-                                logger.error("  ╠" + "═" * 70 + "╣")
-                                logger.error(f"  ║ La IA intentó la misma acción {max_repeated_action_attempts} veces sin progreso")
-                                logger.error(f"  ║ Acción: {tool_call['name']}")
-                                logger.error(f"  ║ Args: {tool_call['arguments']}")
-                                logger.error("  ║")
-                                logger.error("  ║ Esto indica que la acción se ejecuta pero no produce")
-                                logger.error("  ║ el efecto esperado (ej: campo no acepta texto).")
-                                logger.error("  ║")
-                                logger.error("  ║ Posibles causas:")
-                                logger.error("  ║   - El elemento está visible pero no interactuable")
-                                logger.error("  ║   - El campo tiene validación que rechaza el input")
-                                logger.error("  ║   - Hay un overlay/popup bloqueando la interacción")
-                                logger.error("  ║   - El elemento correcto tiene diferente XPath")
-                                logger.error("  ╚" + "═" * 70 + "╝")
-                                return False
-                        else:
-                            # Nueva acción diferente, resetear contador
-                            repeated_action_count = 1
-                            last_action_signature = current_action_signature
-                        
-                        phase4_start = time.time()
-                        success, result_message = self._execute_single_tool_call(tool_call, step)
-                        phase4_time = int((time.time() - phase4_start) * 1000)
-                        self._execution_stats["total_actions"] += 1
-                        actions_executed += 1
-                        
-                        logger.info(f"  │ FASE 4: Acción ejecutada en {phase4_time}ms - "
-                                   f"{'✓ Éxito' if success else '✗ Fallo'}")
+                            # ══════════════════════════════════════════════════════════════
+                            # DETECCIÓN DE ACCIONES REPETIDAS
+                            # Si la IA intenta la misma acción 3 veces, falla el paso
+                            # ══════════════════════════════════════════════════════════════
+                            current_action_signature = f"{tool_call['name']}:{json.dumps(tool_call['arguments'], sort_keys=True)}"
+                            
+                            if current_action_signature == last_action_signature:
+                                repeated_action_count += 1
+                                logger.warning(f"  │ ⚠️ ACCIÓN REPETIDA detectada ({repeated_action_count}/{max_repeated_action_attempts})")
+                                logger.warning(f"  │    Acción: {tool_call['name']}({tool_call['arguments']})")
+                                
+                                if repeated_action_count >= max_repeated_action_attempts:
+                                    logger.error("")
+                                    logger.error("  ╔" + "═" * 70 + "╗")
+                                    logger.error("  ║ ❌ ERROR: LÍMITE DE ACCIONES REPETIDAS ALCANZADO")
+                                    logger.error("  ╠" + "═" * 70 + "╣")
+                                    logger.error(f"  ║ La IA intentó la misma acción {max_repeated_action_attempts} veces sin progreso")
+                                    logger.error(f"  ║ Acción: {tool_call['name']}")
+                                    logger.error(f"  ║ Args: {tool_call['arguments']}")
+                                    logger.error("  ║")
+                                    logger.error("  ║ Esto indica que la acción se ejecuta pero no produce")
+                                    logger.error("  ║ el efecto esperado (ej: campo no acepta texto).")
+                                    logger.error("  ║")
+                                    logger.error("  ║ Posibles causas:")
+                                    logger.error("  ║   - El elemento está visible pero no interactuable")
+                                    logger.error("  ║   - El campo tiene validación que rechaza el input")
+                                    logger.error("  ║   - Hay un overlay/popup bloqueando la interacción")
+                                    logger.error("  ║   - El elemento correcto tiene diferente XPath")
+                                    logger.error("  ╚" + "═" * 70 + "╝")
+                                    return False
+                            else:
+                                # Nueva acción diferente, resetear contador
+                                repeated_action_count = 1
+                                last_action_signature = current_action_signature
+                            
+                            phase4_start = time.time()
+                            success, result_message = self._execute_single_tool_call(tool_call, step)
+                            phase4_time = int((time.time() - phase4_start) * 1000)
+                            self._execution_stats["total_actions"] += 1
+                            actions_executed += 1
+                            
+                            logger.info(f"  │   Acción {tool_call_idx + 1} ejecutada en {phase4_time}ms - "
+                                       f"{'✓ Éxito' if success else '✗ Fallo'}")
 
-                        if not success:
-                            logger.warning(f"  │ ⚠️ Acción falló, saliendo del loop para reintentar...")
+                            if not success:
+                                all_actions_successful = False
+                                logger.warning(f"  │ ⚠️ Acción {tool_call_idx + 1} falló")
+                                # Continuar ejecutando las demás acciones, pero marcar que hubo fallo
+                            
+                            # V2: Extraer UI del resultado si está disponible
+                            result_ui_elements = None
+                            result_message_clean = result_message
+                            if isinstance(result_message, dict):
+                                result_ui_elements = result_message.get("ui_elements")
+                                result_message_clean = result_message.get("message", str(result_message))
+                                # Si hay UI en el resultado, actualizar ui_elements para el siguiente ciclo
+                                if result_ui_elements:
+                                    ui_elements = result_ui_elements
+                                    logger.debug(f"  │   ✓ UI actualizada desde resultado ({len(ui_elements)} elementos)")
+                            
+                            # V2: Registrar acción con resultado en historial (formato dict)
+                            # NOTA: NO incluimos UI en el historial para evitar llenar el contexto
+                            action_entry = {
+                                "index": len(self.action_history) + 1,
+                                "action": f"{tool_call['name']}({tool_call['arguments']})",
+                                "result": result_message_clean,
+                                "success": success
+                            }
+                            self.action_history.append(action_entry)
+                            
+                            # Guardar última acción y resultado para consulta de completitud
+                            last_tool_call = tool_call
+                            last_result_message = result_message_clean
+                            
+                            # ══════════════════════════════════════════════════════════════
+                            # FASE 5: Esperar a que la UI se estabilice después de cada acción
+                            # (excepto para assert_screen_contains que no modifica UI)
+                            # ══════════════════════════════════════════════════════════════
+                            action_name = tool_call['name']
+                            if action_name != "assert_screen_contains":
+                                logger.debug(f"  │   Esperando estabilidad de UI post-acción {tool_call_idx + 1}...")
+                                phase5_start = time.time()
+                                is_stable, wait_time, stability_reason = self.agent_tools.wait_for_ui_stable()
+                                phase5_time = int((time.time() - phase5_start) * 1000)
+                                
+                                if is_stable:
+                                    logger.debug(f"  │   ✓ UI estable en {phase5_time}ms ({stability_reason})")
+                                else:
+                                    logger.warning(f"  │   ⚠️ UI no estabilizó en {phase5_time}ms ({stability_reason})")
+                        
+                        # Después de ejecutar todas las acciones, verificar si alguna falló
+                        if not all_actions_successful:
+                            logger.warning(f"  │ ⚠️ Al menos una acción falló, saliendo del loop para reintentar...")
                             logger.info(f"  └─ Fin loop iteración {loop_iteration} (acción fallida) ─┘")
                             break  # Salir del while para reintentar
-
-                        # V2: Registrar acción con resultado en historial (formato dict)
-                        action_entry = {
-                            "index": len(self.action_history) + 1,
-                            "action": f"{tool_call['name']}({tool_call['arguments']})",
-                            "result": result_message,
-                            "success": success
-                        }
-                        self.action_history.append(action_entry)
-                        logger.debug(f"  │ Acción agregada al historial. Total: {len(self.action_history)}")
+                        
+                        logger.debug(f"  │ ✓ Todas las acciones ejecutadas. Total en historial: {len(self.action_history)}")
                         
                         # V2: INMEDIATAMENTE consultar LLM con el resultado para determinar completitud
+                        # Solo consultamos una vez después de ejecutar todas las acciones del turno
                         logger.info("  │ FASE 4.5: Consultando IA para determinar completitud del paso...")
                         phase4_5_start = time.time()
                         try:
                             completion_decision = self.ai_orchestrator.decide_step_completion(
                                 context=step_context,
-                                last_action=tool_call,
-                                last_result=result_message,
+                                last_action=last_tool_call,
+                                last_result=last_result_message,
                                 current_ui=ui_elements
                             )
                             phase4_5_time = int((time.time() - phase4_5_start) * 1000)
@@ -597,21 +553,6 @@ class QAIV2TestRunner:
                                 logger.info(f"  └─ Fin loop (paso completado en {attempt_elapsed:.2f}s) ─┘")
                                 logger.info(f"└─ FIN INTENTO {attempt} - ÉXITO ─┘")
                                 return True
-                            elif completion_decision.get("next_step_completed"):
-                                logger.info(f"  │ ✓ IA indica que el paso actual Y el siguiente están completos")
-                                logger.info(f"  │   Razón: {completion_decision.get('reason', 'N/A')}")
-                                action_summary = {
-                                    "index": len(self.action_history) + 1,
-                                    "action": f"Paso completado (incluyendo siguiente): {step}",
-                                    "result": completion_decision.get('reason', 'Step and next step completed'),
-                                    "success": True
-                                }
-                                self.action_history.append(action_summary)
-                                
-                                attempt_elapsed = (datetime.now() - attempt_start).total_seconds()
-                                logger.info(f"  └─ Fin loop (paso completado en {attempt_elapsed:.2f}s) ─┘")
-                                logger.info(f"└─ FIN INTENTO {attempt} - ÉXITO ─┘")
-                                return True
                             else:
                                 logger.info(f"  │ IA indica que el paso necesita más acciones")
                                 logger.info(f"  │   Razón: {completion_decision.get('reason', 'N/A')}")
@@ -619,26 +560,6 @@ class QAIV2TestRunner:
                             logger.warning(f"  │ FASE 4.5 WARNING: Error consultando completitud: {e}")
                             logger.warning(f"  │ Continuando con flujo normal...")
                             # Continuar con flujo normal si falla la consulta de completitud
-
-                        # ══════════════════════════════════════════════════════════════
-                        # FASE 5: Esperar a que la UI se estabilice (manejo de loading)
-                        # OPTIMIZACIÓN: No esperar para assert_screen_contains porque no modifica UI
-                        # ══════════════════════════════════════════════════════════════
-                        action_name = tool_call['name']
-                        if action_name == "assert_screen_contains":
-                            # Assert no modifica la UI, no hay que esperar estabilidad
-                            logger.debug("  │ FASE 5: ⏭️ Omitida (assert_screen_contains no modifica UI)")
-                        else:
-                            logger.debug("  │ FASE 5: Esperando estabilidad de UI post-acción...")
-                            phase5_start = time.time()
-                            is_stable, wait_time, stability_reason = self.agent_tools.wait_for_ui_stable()
-                            phase5_time = int((time.time() - phase5_start) * 1000)
-                            
-                            if is_stable:
-                                logger.debug(f"  │ FASE 5: ✓ UI estable en {phase5_time}ms ({stability_reason})")
-                            else:
-                                logger.warning(f"  │ FASE 5: ⚠️ UI no estabilizó en {phase5_time}ms ({stability_reason})")
-                                # Continuamos de todos modos, el siguiente ciclo verificará el estado
 
                         logger.info(f"  └─ Fin loop iteración {loop_iteration} (continuando) ─┘")
                         # Continuar loop para obtener nuevo estado de UI
@@ -677,7 +598,7 @@ class QAIV2TestRunner:
                 logger.error(f"TEST_RUNNER ERROR: Traceback completo:\n{traceback.format_exc()}")
                 
                 # Verificar si el error es recuperable
-                is_recoverable = _is_recoverable_error(e)
+                is_recoverable = is_recoverable_error(e)
                 
                 if not is_recoverable:
                     # Error NO recuperable - no reintentar, fallar inmediatamente
@@ -884,6 +805,22 @@ class QAIV2TestRunner:
                     logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
                     return (False, "Error: app_package missing")
                 result = self.agent_tools.activate_app(app_package)
+                
+                # V2: Si activate_app devuelve UI, actualizar ui_elements y resultado
+                if isinstance(result, dict) and result.get("ui_available"):
+                    ui_elements_from_tool = result.get("ui_elements", [])
+                    if ui_elements_from_tool:
+                        # Actualizar ui_elements para que esté disponible en el siguiente ciclo
+                        ui_elements = ui_elements_from_tool
+                        logger.debug(f"  │ ✓ UI actualizada desde activate_app ({len(ui_elements)} elementos)")
+                        # El resultado incluirá la UI para que el agente la vea
+                        result = result.get("message", "Success: App activated")
+                        # Marcar que hay UI disponible en el resultado
+                        result_with_ui = {
+                            "message": result,
+                            "ui_elements": ui_elements_from_tool
+                        }
+                        result = result_with_ui
 
             elif tool_name == "terminate_app":
                 app_package = tool_args.get("app_package")
@@ -924,9 +861,18 @@ class QAIV2TestRunner:
             elapsed_ms = int((time.time() - start_time) * 1000)
             
             # Verificar resultado
-            if result and "Error" in result:
-                logger.error(f"  ❌ Tool call falló ({elapsed_ms}ms): {result}")
-                return (False, result)
+            # Manejar resultados que pueden ser dict (con UI), str, o MiddlewareResult
+            result_message = result
+            if isinstance(result, dict):
+                # Si es dict, extraer el mensaje
+                result_message = result.get("message", str(result))
+            elif isinstance(result, MiddlewareResult):
+                # MiddlewareResult ya tiene un mensaje
+                result_message = result.message
+            
+            if result_message and "Error" in str(result_message):
+                logger.error(f"  ❌ Tool call falló ({elapsed_ms}ms): {result_message}")
+                return (False, result_message)
             elif result:
                 logger.info(f"  ┌─ TOOL CALL ─────────────────────────┐")
                 logger.info(f"  │ Tool: {tool_name}")
@@ -934,9 +880,12 @@ class QAIV2TestRunner:
                 logger.info(f"  │ ID: {tool_id}")
                 logger.info(f"  │ Status: Success")
                 logger.info(f"  │ Step: {step[:50]}...")
-                logger.info(f"  │ Result: {result}")
+                logger.info(f"  │ Result: {result_message}")
+                if isinstance(result, dict) and result.get("ui_elements"):
+                    logger.info(f"  │ UI: {len(result['ui_elements'])} elementos disponibles")
                 logger.info(f"  │ Duration: {elapsed_ms}ms")
                 logger.info(f"  └─────────────────────────────────────────────────┘")
+                # Retornar el resultado completo (puede incluir UI)
                 return (True, result)
             else:
                 # Sin resultado (no debería pasar, pero por seguridad)
@@ -1003,33 +952,3 @@ class QAIV2TestRunner:
         logger.info(f"║    Elementos mapeados: {len(self.ui_parser.element_map)}")
         logger.info(f"║    Próximo ID: {self.ui_parser.current_id}")
         logger.info("╚" + "═" * 60 + "╝")
-
-    def _validate_allowed_apps_installed(self) -> None:
-        """
-        Valida que todas las apps en ALLOWED_APP_PACKAGES estén instaladas en el dispositivo.
-        
-        Raises:
-            ValueError: Si alguna app no está instalada
-        """
-        if not Config.ALLOWED_APP_PACKAGES:
-            # Ya validado en Config.validate(), pero por seguridad
-            raise ValueError("ALLOWED_APP_PACKAGES está vacío. Configura al menos una app permitida.")
-        
-        for app_package in Config.ALLOWED_APP_PACKAGES:
-            try:
-                state_code, state_name = self.agent_tools.query_app_state(app_package)
-                if state_code == 0:  # NOT_INSTALLED
-                    raise ValueError(
-                        f"App '{app_package}' de ALLOWED_APP_PACKAGES no está instalada en el dispositivo. "
-                        f"Estado: {state_name}. Instala la app o actualiza ALLOWED_APP_PACKAGES en .env"
-                    )
-                logger.debug(f"TEST_RUNNER: ✓ App '{app_package}' instalada (estado: {state_name})")
-            except Exception as e:
-                if isinstance(e, ValueError):
-                    raise
-                # Si hay error al consultar el estado, asumir que no está instalada
-                logger.error(f"TEST_RUNNER ERROR: No se pudo verificar estado de app '{app_package}': {e}")
-                raise ValueError(
-                    f"No se pudo verificar si la app '{app_package}' está instalada. "
-                    f"Error: {str(e)}"
-                )

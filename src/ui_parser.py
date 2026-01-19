@@ -10,6 +10,7 @@ https://github.com/toon-format/toon
 import xml.etree.ElementTree as ET
 import logging
 import traceback
+import time
 from typing import List, Dict, Optional, Any, Union
 from typing_extensions import TypedDict
 import re
@@ -17,6 +18,7 @@ import json
 
 from toon_format import encode as toon_encode
 from src.middleware_result import MiddlewareResult, MiddlewareStatus
+from src.config import Config
 
 # Configurar logging para este módulo
 logger = logging.getLogger(__name__)
@@ -83,9 +85,16 @@ class UIParser:
     a XPath reales.
     """
 
-    def __init__(self):
-        """Inicializa el parser con mapeo vacío de elementos."""
+    def __init__(self, driver: Optional[Any] = None):
+        """
+        Inicializa el parser con mapeo vacío de elementos.
+        
+        Args:
+            driver: Driver de Appium (opcional). Si se proporciona, el parser puede
+                   obtener el XML y current_package por sí mismo.
+        """
         logger.debug("UIPARSER: Inicializando UIParser")
+        self.driver = driver
         self.element_map: Dict[int, str] = {}  # ID -> XPath
         self.element_info_map: Dict[int, UIElement] = {}  # ID -> Información completa del elemento
         self.current_id = 0
@@ -95,14 +104,187 @@ class UIParser:
             "filtered_out": 0,
         }
 
+    def _get_current_package(self) -> Optional[str]:
+        """
+        Obtiene el package de la app actual en foreground.
+        
+        Returns:
+            Package de la app actual o None si no se puede obtener
+        """
+        if not self.driver:
+            return None
+        try:
+            return self.driver.current_package
+        except Exception as e:
+            logger.warning(f"UIPARSER: No se pudo obtener current_package: {e}")
+            return None
+
+    def _get_screen_tree(self) -> str:
+        """
+        Obtiene el XML de la pantalla actual desde el driver.
+        
+        Returns:
+            String con el XML completo de page_source
+            
+        Raises:
+            ValueError: Si no hay driver configurado
+        """
+        if not self.driver:
+            raise ValueError("UIPARSER ERROR: No hay driver configurado. Pasa el driver al inicializar UIParser o proporciona xml_source directamente.")
+        
+        try:
+            return self.driver.page_source
+        except Exception as e:
+            logger.error(f"UIPARSER ERROR: Fallo al obtener page_source: {e}")
+            raise
+
+    def _is_loading_screen(self, page_source: str) -> tuple[bool, str]:
+        """
+        Detecta si la pantalla actual muestra un indicador de carga.
+        
+        Returns:
+            Tupla (is_loading, reason): True si hay loading, False si no
+        """
+        page_source_lower = page_source.lower()
+        
+        # Patrones comunes de loading
+        loading_patterns = [
+            ("loading", "Indicador 'loading' detectado"),
+            ("cargando", "Indicador 'cargando' detectado"),
+            ("progressbar", "ProgressBar detectado"),
+            ("progress_bar", "ProgressBar detectado"),
+            ("spinner", "Spinner detectado"),
+            ("circularprogressindicator", "CircularProgressIndicator detectado"),
+        ]
+        
+        for pattern, reason in loading_patterns:
+            if pattern in page_source_lower:
+                return True, reason
+        
+        return False, "No hay indicadores de carga"
+
+    def _get_page_source_hash(self, page_source: str) -> int:
+        """
+        Genera un hash simple del page_source para comparar cambios.
+        Ignora atributos que cambian constantemente.
+        """
+        # Remover atributos que cambian frecuentemente
+        cleaned = page_source
+        # Remover bounds exactos (pueden cambiar ligeramente)
+        cleaned = re.sub(r'bounds="\[.*?\]"', '', cleaned)
+        # Remover focused (cambia constantemente)
+        cleaned = re.sub(r'focused="(true|false)"', '', cleaned)
+        # Remover espacios extra
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+        return hash(cleaned)
+
+    def _wait_for_ui_stable(self, timeout: float = 5.0, stability_threshold: int = 3, interval: float = 0.5) -> tuple[bool, float, str]:
+        """
+        Espera hasta que la UI se estabilice (deje de cambiar).
+        
+        Args:
+            timeout: Tiempo máximo de espera en segundos
+            stability_threshold: Número de checks consecutivos iguales para considerar estable
+            interval: Intervalo entre checks en segundos
+            
+        Returns:
+            Tupla (is_stable, wait_time_seconds, reason)
+        """
+        if not self.driver:
+            logger.warning("UIPARSER: No hay driver, saltando espera de estabilidad")
+            return True, 0.0, "No driver available"
+        
+        start_time = time.time()
+        previous_hash = None
+        stable_count = 0
+        check_count = 0
+        
+        while (time.time() - start_time) < timeout:
+            check_count += 1
+            try:
+                page_source = self.driver.page_source
+                
+                # Verificar si hay pantalla de carga
+                is_loading, loading_reason = self._is_loading_screen(page_source)
+                if is_loading:
+                    logger.debug(f"UIPARSER: 🔄 Check #{check_count}: {loading_reason}")
+                    stable_count = 0
+                    time.sleep(interval)
+                    continue
+                
+                # Comparar hash
+                current_hash = self._get_page_source_hash(page_source)
+                
+                if previous_hash == current_hash:
+                    stable_count += 1
+                    if stable_count >= stability_threshold:
+                        elapsed = time.time() - start_time
+                        logger.debug(f"UIPARSER: ✓ UI estable después de {elapsed:.2f}s ({check_count} checks)")
+                        return True, elapsed, f"UI estable después de {check_count} checks"
+                else:
+                    stable_count = 0
+                    logger.debug(f"UIPARSER: 🔄 Check #{check_count}: UI cambió, reiniciando contador")
+                
+                previous_hash = current_hash
+                time.sleep(interval)
+                
+            except Exception as e:
+                logger.warning(f"UIPARSER: Error en check #{check_count}: {e}")
+                time.sleep(interval)
+        
+        elapsed = time.time() - start_time
+        logger.warning(f"UIPARSER: ⚠️  Timeout esperando estabilidad después de {elapsed:.2f}s")
+        return False, elapsed, f"Timeout después de {check_count} checks"
+
+    def get_ui(self, wait_stable: bool = True, timeout: float = 5.0) -> Union[List[UIElement], MiddlewareResult]:
+        """
+        Método principal para obtener la UI actual.
+        
+        Encapsula toda la lógica:
+        1. Espera estabilidad de UI (si wait_stable=True)
+        2. Obtiene XML y current_package del driver
+        3. Ejecuta middleware de validación de scope
+        4. Parsea y retorna elementos o MiddlewareResult
+        
+        Args:
+            wait_stable: Si True, espera a que la UI se estabilice antes de parsear
+            timeout: Tiempo máximo de espera para estabilidad (solo si wait_stable=True)
+            
+        Returns:
+            List[UIElement] si la app está permitida y hay elementos
+            MiddlewareResult si la app no está permitida o hay error de scope
+        """
+        logger.debug("=" * 70)
+        logger.debug("UIPARSER: get_ui() - Obteniendo UI actual")
+        logger.debug("=" * 70)
+        
+        # FASE 1: Esperar estabilidad si está habilitado
+        if wait_stable and self.driver:
+            logger.debug("UIPARSER: Esperando estabilidad de UI...")
+            is_stable, wait_time, reason = self._wait_for_ui_stable(timeout=timeout)
+            if not is_stable:
+                logger.warning(f"UIPARSER: UI no estabilizó completamente ({reason}), continuando de todos modos")
+        
+        # FASE 2: Obtener XML y current_package
+        logger.debug("UIPARSER: Obteniendo XML y current_package...")
+        xml_source = self._get_screen_tree()
+        current_package = self._get_current_package()
+        logger.debug(f"UIPARSER: ✓ XML obtenido ({len(xml_source)} caracteres), current_package = {current_package}")
+        
+        # FASE 3: Ejecutar parse_screen (que incluye middleware)
+        return self.parse_screen(xml_source=xml_source, current_package=current_package)
+
     def parse_screen(
         self, 
-        xml_source: str, 
+        xml_source: Optional[str] = None, 
         current_package: Optional[str] = None, 
         allowed_packages: Optional[List[str]] = None
     ) -> Union[List[UIElement], MiddlewareResult]:
         """
         Parsea el XML y retorna lista de elementos interactuables.
+
+        Si xml_source no se proporciona, el parser obtiene el XML desde el driver.
+        Si current_package no se proporciona, el parser lo obtiene desde el driver.
 
         Criterios de inclusión:
         - focusable="true" - REQUERIDO
@@ -111,9 +293,9 @@ class UIParser:
         - Clase contiene "ImageView" + clickable (botones de imagen) - siempre incluidos
 
         Args:
-            xml_source: String con el XML completo de page_source
-            current_package: Package de la app actual en foreground (opcional)
-            allowed_packages: Lista de packages permitidos (opcional)
+            xml_source: String con el XML completo de page_source (opcional, se obtiene del driver si no se proporciona)
+            current_package: Package de la app actual en foreground (opcional, se obtiene del driver si no se proporciona)
+            allowed_packages: Lista de packages permitidos (opcional, usa Config.ALLOWED_APP_PACKAGES si no se proporciona)
 
         Returns:
             Lista de UIElement o MiddlewareResult si la app actual no está permitida.
@@ -148,13 +330,31 @@ class UIParser:
         logger.debug("UIPARSER: Iniciando parseo de pantalla")
         logger.debug("=" * 70)
         
-        # Validar scope de app si se proporcionan allowed_packages
+        # Obtener XML si no se proporciona
+        if xml_source is None:
+            logger.debug("UIPARSER: Obteniendo XML desde driver...")
+            xml_source = self._get_screen_tree()
+            logger.debug(f"UIPARSER: ✓ XML obtenido ({len(xml_source)} caracteres)")
+        
+        # Obtener current_package si no se proporciona
+        if current_package is None:
+            logger.debug("UIPARSER: Obteniendo current_package desde driver...")
+            current_package = self._get_current_package()
+            logger.debug(f"UIPARSER: current_package = {current_package}")
+        
+        # Middleware: Validar scope de app
+        # Si allowed_packages no se proporciona pero Config.ALLOWED_APP_PACKAGES está configurado, usarlo
+        if allowed_packages is None and Config.ALLOWED_APP_PACKAGES:
+            allowed_packages = Config.ALLOWED_APP_PACKAGES
+            logger.debug(f"UIPARSER: Usando ALLOWED_APP_PACKAGES de Config: {allowed_packages}")
+        
+        # Ejecutar validación del middleware si hay allowed_packages
         if allowed_packages:
             if not current_package or current_package not in allowed_packages:
                 # App no permitida o launcher/sistema
                 allowed_str = ", ".join(allowed_packages)
                 logger.warning(
-                    f"UIPARSER: App actual '{current_package}' no está en allowed_packages. "
+                    f"UIPARSER: ⚠️  MIDDLEWARE DENEGADO - App actual '{current_package}' no está en allowed_packages. "
                     f"Apps permitidas: {allowed_packages}"
                 )
                 return MiddlewareResult(
@@ -163,6 +363,8 @@ class UIParser:
                     allowed_apps=allowed_packages,
                     suggested_tool="activate_app"
                 )
+            else:
+                logger.debug(f"UIPARSER: ✓ Middleware permitido - App '{current_package}' está en allowed_packages")
         
         # Reset estadísticas
         self._parse_stats = {

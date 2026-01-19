@@ -20,6 +20,8 @@ from src.ui_parser import UIParser
 from src.agent_tools import AppiumSkills
 from src.v1.ai_orchestrator import QAIV1Orchestrator, StepContext
 from src.config import Config
+from src.middleware_result import MiddlewareResult
+from src.validators import validate_config, validate_driver, is_recoverable_error
 
 # Importar Allure de forma opcional (solo disponible en tests)
 try:
@@ -28,19 +30,6 @@ try:
 except ImportError:
     ALLURE_AVAILABLE = False
 
-# Importar excepciones de Selenium/Appium para identificar errores recuperables
-try:
-    from selenium.common.exceptions import (
-        TimeoutException,
-        NoSuchElementException,
-        ElementNotInteractableException,
-        StaleElementReferenceException,
-        WebDriverException,
-    )
-    SELENIUM_EXCEPTIONS_AVAILABLE = True
-except ImportError:
-    SELENIUM_EXCEPTIONS_AVAILABLE = False
-
 # Configurar logging con formato detallado
 logging.basicConfig(
     level=logging.DEBUG,  # Cambiado a DEBUG para máxima visibilidad
@@ -48,82 +37,6 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
-
-
-def _is_recoverable_error(exception: Exception) -> bool:
-    """
-    Determina si un error es recuperable (debe reintentarse) o no recuperable.
-    
-    Errores NO recuperables (no deben reintentarse):
-    - ValueError: Datos inválidos, estructura incorrecta
-    - KeyError: Clave faltante en diccionario
-    - TypeError: Tipos incorrectos
-    - AttributeError: Atributo faltante
-    - SyntaxError: Error de sintaxis
-    - NameError: Nombre no definido
-    - ImportError: Error de importación
-    - ConfigurationError: Errores de configuración
-    
-    Errores SÍ recuperables (deben reintentarse):
-    - TimeoutException: Timeouts temporales
-    - NoSuchElementException: Elemento no encontrado (puede aparecer después)
-    - ElementNotInteractableException: Elemento no interactuable (puede cambiar)
-    - StaleElementReferenceException: Referencia obsoleta (puede resolverse)
-    - WebDriverException: Algunos errores temporales del driver
-    
-    Args:
-        exception: Excepción a evaluar
-        
-    Returns:
-        True si el error es recuperable (debe reintentarse), False si no
-    """
-    # Errores NO recuperables - errores de programación/configuración
-    non_recoverable_errors = (
-        ValueError,
-        KeyError,
-        TypeError,
-        AttributeError,
-        SyntaxError,
-        NameError,
-        ImportError,
-        IndentationError,
-        UnicodeError,
-    )
-    
-    # Verificar si es un error no recuperable
-    if isinstance(exception, non_recoverable_errors):
-        return False
-    
-    # Errores recuperables - errores temporales de Appium/Selenium
-    if SELENIUM_EXCEPTIONS_AVAILABLE:
-        recoverable_errors = (
-            TimeoutException,
-            NoSuchElementException,
-            ElementNotInteractableException,
-            StaleElementReferenceException,
-        )
-        
-        if isinstance(exception, recoverable_errors):
-            return True
-        
-        # WebDriverException puede ser recuperable o no, depende del caso
-        # Por defecto, lo consideramos recuperable (puede ser temporal)
-        if isinstance(exception, WebDriverException):
-            # Algunos WebDriverException son no recuperables (ej: driver desconectado)
-            error_msg = str(exception).lower()
-            non_recoverable_patterns = [
-                "session not created",
-                "invalid session id",
-                "no such session",
-                "session deleted",
-            ]
-            if any(pattern in error_msg for pattern in non_recoverable_patterns):
-                return False
-            return True
-    
-    # Por defecto, si no podemos determinar, asumimos que NO es recuperable
-    # para evitar loops infinitos con errores desconocidos
-    return False
 
 
 class QAIV1TestRunner:
@@ -154,30 +67,19 @@ class QAIV1TestRunner:
         #Config.debug_print_config()
         
         # Validar configuración
-        logger.info("TEST_RUNNER: Validando configuración...")
-        is_valid, error_msg = Config.validate()
-        if not is_valid:
-            logger.error(f"TEST_RUNNER ERROR: Configuración inválida: {error_msg}")
-            raise ValueError(f"Configuración inválida: {error_msg}")
-        logger.info("TEST_RUNNER: ✓ Configuración válida")
+        validate_config()
         
         self.driver = driver
         self.objective = objective
         
         # Verificar driver
-        logger.debug("TEST_RUNNER: Verificando driver de Appium...")
-        try:
-            session_id = driver.session_id
-            logger.info(f"TEST_RUNNER: ✓ Driver activo - Session ID: {session_id}")
-        except Exception as e:
-            logger.error(f"TEST_RUNNER ERROR: Driver no disponible: {e}")
-            raise
+        validate_driver(driver)
         
         # Inicializar componentes
         logger.info("TEST_RUNNER: Inicializando componentes...")
         
         logger.debug("TEST_RUNNER: Creando UIParser...")
-        self.ui_parser = UIParser()
+        self.ui_parser = UIParser(driver=self.driver)
         logger.debug("TEST_RUNNER: ✓ UIParser creado")
         
         logger.debug("TEST_RUNNER: Creando AppiumSkills...")
@@ -187,11 +89,6 @@ class QAIV1TestRunner:
         logger.debug("TEST_RUNNER: Creando QAIV1Orchestrator...")
         self.ai_orchestrator = QAIV1Orchestrator()
         logger.debug("TEST_RUNNER: ✓ QAIV1Orchestrator creado")
-        
-        # Validar que todas las apps permitidas estén instaladas
-        logger.info("TEST_RUNNER: Validando que apps permitidas estén instaladas...")
-        self._validate_allowed_apps_installed()
-        logger.info("TEST_RUNNER: ✓ Todas las apps permitidas están instaladas")
         
         # Contexto global del agente para el paso actual
         self.current_context: Optional[StepContext] = None
@@ -404,42 +301,46 @@ class QAIV1TestRunner:
                     logger.info(f"  ┌─ Loop agéntico iteración {loop_iteration} ─┐")
                     
                     # ══════════════════════════════════════════════════════════════
-                    # FASE 1: Obtener XML ACTUALIZADO del driver (con espera de estabilidad)
+                    # FASE: Obtener UI actual (UIParser maneja todo internamente)
                     # ══════════════════════════════════════════════════════════════
-                    #logger.debug("  │ FASE 1: Obteniendo XML de la pantalla (con espera de estabilidad)...")
-                    phase1_start = time.time()
+                    # UIParser.get_ui() encapsula:
+                    # - Espera de estabilidad de UI
+                    # - Obtención de XML y current_package
+                    # - Validación de middleware (scope de apps)
+                    # - Parseo de elementos
+                    # Retorna List[UIElement] o MiddlewareResult
+                    phase_start = time.time()
                     try:
-                        # Usar get_screen_tree_stable para manejar pantallas de carga
-                        xml_source = self.agent_tools.get_screen_tree_stable()
-                        phase1_time = int((time.time() - phase1_start) * 1000)
-                        #logger.debug(f"  │ FASE 1: ✓ XML estable obtenido en {phase1_time}ms ({len(xml_source)} chars)")
-                    except Exception as e:
-                        logger.error(f"  │ FASE 1 ERROR: No se pudo obtener XML: {e}")
-                        logger.error(f"  │ Traceback:\n{traceback.format_exc()}")
-                        raise
-
-                    # ══════════════════════════════════════════════════════════════
-                    # FASE 2: UIParser parsea XML y genera JSON con estado ACTUAL
-                    # ══════════════════════════════════════════════════════════════
-                    #logger.debug("  │ FASE 2: Parseando UI...")
-                    phase2_start = time.time()
-                    try:
-                        ui_elements = self.ui_parser.parse_screen(xml_source)
-                        phase2_time = int((time.time() - phase2_start) * 1000)
-                        logger.info(f"  │ FASE 2: ✓ {len(ui_elements)} elementos encontrados en {phase2_time}ms")
+                        parse_result = self.ui_parser.get_ui()
+                        phase_time = int((time.time() - phase_start) * 1000)
                         
-                        # Mostrar elementos encontrados
-                        if ui_elements:
-                            #logger.debug("  │ FASE 2: Elementos disponibles:")
-                            #logger.debug(f"  │ {json.dumps(ui_elements, indent=2, ensure_ascii=False)}")
-                            # DEBUG: Dump del mapeo completo (solo primera iteración del loop)
-                            if loop_iteration == 1:
-                                #logger.debug("  │ FASE 2: Dump del mapeo ID→XPath:")
-                                self.ui_parser.debug_dump_element_map(log_output=False)
+                        # El middleware retorna MiddlewareResult o List[UIElement]
+                        if isinstance(parse_result, MiddlewareResult):
+                            # Middleware denegó: app no permitida
+                            ui_elements = []
+                            logger.warning(f"  │ ⚠️  Middleware denegado ({phase_time}ms)")
+                            logger.warning(f"  │ {parse_result.message}")
+                            # Inyectar mensaje en action_history para que el agente lo vea
+                            self.action_history.append(
+                                f"get_ui_elements → {parse_result.message}"
+                            )
                         else:
-                            logger.warning("  │ FASE 2 WARNING: No se encontraron elementos interactuables")
-                            # DEBUG: Dump para diagnosticar por qué no hay elementos
-                            self.ui_parser.debug_dump_element_map(log_output=True)
+                            # Resultado normal: lista de elementos
+                            ui_elements = parse_result
+                            logger.info(f"  │ ✓ {len(ui_elements)} elementos encontrados en {phase_time}ms")
+                            
+                            # Mostrar elementos encontrados
+                            if ui_elements:
+                                #logger.debug("  │ FASE 2: Elementos disponibles:")
+                                #logger.debug(f"  │ {json.dumps(ui_elements, indent=2, ensure_ascii=False)}")
+                                # DEBUG: Dump del mapeo completo (solo primera iteración del loop)
+                                if loop_iteration == 1:
+                                    #logger.debug("  │ FASE 2: Dump del mapeo ID→XPath:")
+                                    self.ui_parser.debug_dump_element_map(log_output=False)
+                            else:
+                                logger.warning("  │ FASE 2 WARNING: No se encontraron elementos interactuables")
+                                # DEBUG: Dump para diagnosticar por qué no hay elementos
+                                self.ui_parser.debug_dump_element_map(log_output=True)
                     except Exception as e:
                         logger.error(f"  │ FASE 2 ERROR: Fallo al parsear UI: {e}")
                         logger.error(f"  │ Traceback:\n{traceback.format_exc()}")
@@ -654,7 +555,7 @@ class QAIV1TestRunner:
                 logger.error(f"TEST_RUNNER ERROR: Traceback completo:\n{traceback.format_exc()}")
                 
                 # Verificar si el error es recuperable
-                is_recoverable = _is_recoverable_error(e)
+                is_recoverable = is_recoverable_error(e)
                 
                 if not is_recoverable:
                     # Error NO recuperable - no reintentar, fallar inmediatamente
@@ -973,33 +874,3 @@ class QAIV1TestRunner:
         logger.info(f"║    Elementos mapeados: {len(self.ui_parser.element_map)}")
         logger.info(f"║    Próximo ID: {self.ui_parser.current_id}")
         logger.info("╚" + "═" * 60 + "╝")
-
-    def _validate_allowed_apps_installed(self) -> None:
-        """
-        Valida que todas las apps en ALLOWED_APP_PACKAGES estén instaladas en el dispositivo.
-        
-        Raises:
-            ValueError: Si alguna app no está instalada
-        """
-        if not Config.ALLOWED_APP_PACKAGES:
-            # Ya validado en Config.validate(), pero por seguridad
-            raise ValueError("ALLOWED_APP_PACKAGES está vacío. Configura al menos una app permitida.")
-        
-        for app_package in Config.ALLOWED_APP_PACKAGES:
-            try:
-                state_code, state_name = self.agent_tools.query_app_state(app_package)
-                if state_code == 0:  # NOT_INSTALLED
-                    raise ValueError(
-                        f"App '{app_package}' de ALLOWED_APP_PACKAGES no está instalada en el dispositivo. "
-                        f"Estado: {state_name}. Instala la app o actualiza ALLOWED_APP_PACKAGES en .env"
-                    )
-                logger.debug(f"TEST_RUNNER: ✓ App '{app_package}' instalada (estado: {state_name})")
-            except Exception as e:
-                if isinstance(e, ValueError):
-                    raise
-                # Si hay error al consultar el estado, asumir que no está instalada
-                logger.error(f"TEST_RUNNER ERROR: No se pudo verificar estado de app '{app_package}': {e}")
-                raise ValueError(
-                    f"No se pudo verificar si la app '{app_package}' está instalada. "
-                    f"Error: {str(e)}"
-                )

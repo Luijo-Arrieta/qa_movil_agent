@@ -26,6 +26,7 @@ from appium.options.android import UiAutomator2Options
 from src.config import Config
 from src.agent_tools import AppiumSkills
 from src.ui_parser import UIParser
+from src.validators import validate_allowed_apps_installed
 
 
 # Directorio base para logs
@@ -380,11 +381,27 @@ def driver_setup():
             # No es crítico, el driver puede estar bien aunque falle esto
 
         # ══════════════════════════════════════════════════════════════════════
-        # FASE 6 (opcional): Abrir app principal en modo single-app
+        # FASE 6: Validar que apps permitidas estén instaladas
+        # ══════════════════════════════════════════════════════════════════════
+        logger_appium.info("")
+        logger_appium.info("CONFTEST: FASE 6 - Validando apps permitidas...")
+        try:
+            validate_allowed_apps_installed(driver)
+            logger_appium.info("CONFTEST: ✓ Validación de apps completada")
+        except ValueError as e:
+            logger_appium.error(f"CONFTEST ERROR: Validación de apps falló: {e}")
+            raise
+        except Exception as e:
+            logger_appium.error(f"CONFTEST ERROR: Error inesperado en validación de apps: {e}")
+            logger_appium.debug(f"CONFTEST: Traceback:\n{traceback.format_exc()}")
+            raise
+
+        # ══════════════════════════════════════════════════════════════════════
+        # FASE 7 (opcional): Abrir app principal en modo single-app
         # ══════════════════════════════════════════════════════════════════════
         if Config.ANDROID_APP_PACKAGE and Config.AUTO_LAUNCH_MAIN_APP:
             logger_appium.info("")
-            logger_appium.info("CONFTEST: FASE 6 - AUTO_LAUNCH_MAIN_APP activo, abriendo app principal...")
+            logger_appium.info("CONFTEST: FASE 7 - AUTO_LAUNCH_MAIN_APP activo, abriendo app principal...")
             try:
                 ui_parser = UIParser()
                 app_tools = AppiumSkills(driver, ui_parser)
