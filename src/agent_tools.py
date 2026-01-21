@@ -6,6 +6,7 @@ import time
 import logging
 import traceback
 import requests
+import re
 from typing import Optional, Dict, Set, Union, Any
 from appium.webdriver.common.appiumby import AppiumBy
 from appium.webdriver import Remote
@@ -426,13 +427,60 @@ class AppiumSkills:
             except Exception:
                 pass
             
-            # Paso 3: Hacer click
+            # Paso 3: Hacer click (usar clic en esquina para elementos grandes)
             logger.debug("AGENT_TOOLS: Ejecutando click...")
-            element.click()
+            
+            # Obtener bounds del elemento para detectar si es muy grande
+            bounds_str = element.get_attribute("bounds") or ""
+            use_corner_click = False
+            click_x = None
+            click_y = None
+            
+            if bounds_str:
+                # Parsear bounds "[x1,y1][x2,y2]"
+                match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                if match:
+                    x1, y1, x2, y2 = map(int, match.groups())
+                    width = x2 - x1
+                    height = y2 - y1
+                    
+                    # Obtener tamaño de pantalla
+                    try:
+                        window_size = self.driver.get_window_size()
+                        screen_width = window_size['width']
+                        screen_height = window_size['height']
+                        
+                        coverage = (width * height) / (screen_width * screen_height) if (screen_width * screen_height) > 0 else 0
+                        
+                        # Si cubre más del 90% de la pantalla, hacer clic en esquina superior derecha
+                        if coverage > 0.90:
+                            use_corner_click = True
+                            # Clic en esquina superior derecha (con margen de 50px desde el borde)
+                            click_x = max(x1 + 50, x2 - 50)  # Asegurar que esté dentro del elemento
+                            click_y = min(y1 + 50, y2 - 50)   # Asegurar que esté dentro del elemento
+                            
+                            logger.debug(
+                                f"AGENT_TOOLS: Elemento grande detectado (cobertura: {coverage:.1%}), "
+                                f"usando clic en coordenadas ({click_x}, {click_y}) en lugar del centro"
+                            )
+                    except Exception as e:
+                        logger.debug(f"AGENT_TOOLS: No se pudo calcular cobertura, usando clic normal: {e}")
+            
+            if use_corner_click and click_x is not None and click_y is not None:
+                # Usar mobile: clickGesture para clic en coordenadas específicas (método moderno de Appium)
+                self.driver.execute_script("mobile: clickGesture", {
+                    "x": click_x,
+                    "y": click_y
+                })
+            else:
+                # Comportamiento normal para elementos de tamaño normal
+                element.click()
+            
             time.sleep(self.min_wait_timeout)
             
             elapsed_ms = int((time.time() - start_time) * 1000)
-            success_msg = f"Success: Clicked on element ID {element_id}"
+            click_method = "corner click" if use_corner_click else "center click"
+            success_msg = f"Success: Clicked on element ID {element_id} ({click_method})"
             logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
             self._action_stats["successful_actions"] += 1
             return success_msg
@@ -451,6 +499,184 @@ class AppiumSkills:
             elif "StaleElement" in str(type(e).__name__):
                 logger.error("AGENT_TOOLS DIAGNÓSTICO: Elemento stale - la UI cambió. "
                            "Necesita re-parseo de pantalla")
+            
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+
+    def touch_out_element(self, element_id: int, direction: str, distance_percent: int) -> str:
+        """
+        Hace clic fuera de un elemento visible. Útil para cerrar popups o diálogos.
+
+        Args:
+            element_id: ID del elemento (asignado por UIParser)
+            direction: Dirección donde hacer clic fuera del elemento ("up", "down", "left", "right")
+            distance_percent: Distancia como porcentaje del espacio disponible (50-100),
+                             donde 100% = máximo espacio disponible en esa dirección, 50% = mínimo seguro
+
+        Returns:
+            Mensaje de éxito o error
+        """
+        action_name = "touch_out_element"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        
+        logger.info(f"AGENT_TOOLS: 🖱️ Ejecutando {action_name}(element_id={element_id}, direction={direction}, distance_percent={distance_percent})")
+        
+        # Validar dirección
+        valid_directions = ["up", "down", "left", "right"]
+        if direction not in valid_directions:
+            error_msg = f"Error: Dirección inválida '{direction}'. Debe ser una de: {valid_directions}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+        
+        # Validar distance_percent
+        if distance_percent < 50 or distance_percent > 100:
+            error_msg = f"Error: distance_percent debe estar entre 50 y 100, recibido: {distance_percent}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+        
+        # Paso 1: Obtener XPath del mapeo
+        logger.debug(f"AGENT_TOOLS: Buscando XPath para ID {element_id}...")
+        xpath = self.ui_parser.get_element_by_id(element_id)
+        
+        if not xpath:
+            error_msg = f"Error: Elemento con ID {element_id} no encontrado en el mapeo"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            logger.error(f"AGENT_TOOLS ERROR: IDs disponibles: {list(self.ui_parser.element_map.keys())}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+        
+        logger.debug(f"AGENT_TOOLS: XPath encontrado: {xpath}")
+        
+        # Paso 2: Buscar elemento en la UI y obtener bounds
+        start_time = time.time()
+        try:
+            logger.debug(f"AGENT_TOOLS: Buscando elemento con XPath...")
+            element = self.driver.find_element(AppiumBy.XPATH, xpath)
+            logger.debug(f"AGENT_TOOLS: ✓ Elemento encontrado")
+            
+            # Obtener bounds del elemento
+            bounds_str = element.get_attribute("bounds") or ""
+            if not bounds_str:
+                error_msg = f"Error: No se pudieron obtener bounds del elemento ID {element_id}"
+                logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+                self._action_stats["failed_actions"] += 1
+                return error_msg
+            
+            # Parsear bounds "[x1,y1][x2,y2]"
+            match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+            if not match:
+                error_msg = f"Error: No se pudo parsear bounds '{bounds_str}' del elemento ID {element_id}"
+                logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+                self._action_stats["failed_actions"] += 1
+                return error_msg
+            
+            x1, y1, x2, y2 = map(int, match.groups())
+            width = x2 - x1
+            height = y2 - y1
+            center_x = x1 + width // 2
+            center_y = y1 + height // 2
+            
+            # Obtener tamaño de pantalla
+            window_size = self.driver.get_window_size()
+            screen_width = window_size['width']
+            screen_height = window_size['height']
+            
+            # Calcular espacio disponible en cada dirección
+            space_up = y1
+            space_down = screen_height - y2
+            space_left = x1
+            space_right = screen_width - x2
+            
+            logger.debug(
+                f"AGENT_TOOLS: Espacios disponibles - up: {space_up}px, down: {space_down}px, "
+                f"left: {space_left}px, right: {space_right}px"
+            )
+            
+            # Determinar dirección final (con fallback si no hay espacio suficiente)
+            final_direction = direction
+            final_distance_percent = distance_percent
+            MIN_SPACE_REQUIRED = 50  # Mínimo de 50px de espacio requerido
+            
+            # Verificar si la dirección especificada tiene suficiente espacio
+            space_map = {
+                "up": space_up,
+                "down": space_down,
+                "left": space_left,
+                "right": space_right
+            }
+            
+            if space_map[direction] < MIN_SPACE_REQUIRED:
+                # No hay suficiente espacio, usar dirección alternativa automáticamente con 50%
+                logger.warning(
+                    f"AGENT_TOOLS: Dirección '{direction}' no tiene suficiente espacio ({space_map[direction]}px < {MIN_SPACE_REQUIRED}px). "
+                    f"Usando dirección alternativa automáticamente con distance_percent=50"
+                )
+                
+                # Encontrar la dirección con más espacio disponible
+                best_direction = max(space_map.items(), key=lambda x: x[1])[0]
+                if space_map[best_direction] >= MIN_SPACE_REQUIRED:
+                    final_direction = best_direction
+                    final_distance_percent = 50
+                    logger.info(f"AGENT_TOOLS: Usando dirección alternativa '{final_direction}' con {final_distance_percent}%")
+                else:
+                    error_msg = f"Error: No hay suficiente espacio en ninguna dirección (máximo: {space_map[best_direction]}px)"
+                    logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+                    self._action_stats["failed_actions"] += 1
+                    return error_msg
+            
+            # Calcular coordenadas finales basándose en la dirección
+            click_x = None
+            click_y = None
+            available_space = space_map[final_direction]
+            
+            if final_direction == "up":
+                click_x = center_x
+                click_y = y1 - int(available_space * final_distance_percent / 100)
+            elif final_direction == "down":
+                click_x = center_x
+                click_y = y2 + int(available_space * final_distance_percent / 100)
+            elif final_direction == "left":
+                click_x = x1 - int(available_space * final_distance_percent / 100)
+                click_y = center_y
+            elif final_direction == "right":
+                click_x = x2 + int(available_space * final_distance_percent / 100)
+                click_y = center_y
+            
+            # Validar que las coordenadas estén dentro de la pantalla
+            if click_x < 0 or click_x >= screen_width or click_y < 0 or click_y >= screen_height:
+                error_msg = f"Error: Coordenadas calculadas ({click_x}, {click_y}) están fuera de la pantalla ({screen_width}x{screen_height})"
+                logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+                self._action_stats["failed_actions"] += 1
+                return error_msg
+            
+            logger.debug(
+                f"AGENT_TOOLS: Clic fuera del elemento en dirección '{final_direction}' "
+                f"a {final_distance_percent}% del espacio disponible ({available_space}px) "
+                f"en coordenadas ({click_x}, {click_y})"
+            )
+            
+            # Ejecutar clic en coordenadas
+            self.driver.execute_script("mobile: clickGesture", {
+                "x": click_x,
+                "y": click_y
+            })
+            time.sleep(self.min_wait_timeout)
+            
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            success_msg = f"Success: Clicked outside element ID {element_id} in direction '{final_direction}' at ({click_x}, {click_y})"
+            logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+            self._action_stats["successful_actions"] += 1
+            return success_msg
+            
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Error: Could not click outside element ID {element_id}: {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            logger.error(f"AGENT_TOOLS ERROR: XPath usado: {xpath}")
+            logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
             
             self._action_stats["failed_actions"] += 1
             return error_msg
@@ -759,22 +985,35 @@ class AppiumSkills:
     def hide_keyboard(self) -> bool:
         """
         Oculta el teclado si está visible.
+        
+        Estrategia robusta: Intenta ocultar directamente sin verificar primero,
+        ya que is_keyboard_shown() puede causar timeouts, especialmente después
+        de acciones como touch_out_element que pueden dejar el teclado en estado
+        inconsistente o la conexión con Appium más lenta.
+        
+        Si el teclado no está visible, hide_keyboard() simplemente no hará nada,
+        pero evitamos el timeout de is_keyboard_shown().
 
         Returns:
-            True si se ocultó, False si no estaba visible
+            True si se ocultó o se intentó ocultar, False si hubo error
         """
-        logger.debug("AGENT_TOOLS: Verificando si el teclado está visible...")
+        logger.debug("AGENT_TOOLS: Intentando ocultar teclado...")
         try:
-            if self.driver.is_keyboard_shown():
-                logger.debug("AGENT_TOOLS: Teclado visible, ocultando...")
-                self.driver.hide_keyboard()
-                time.sleep(self.min_wait_timeout)
-                logger.debug("AGENT_TOOLS: ✓ Teclado ocultado")
-                return True
-            logger.debug("AGENT_TOOLS: Teclado no estaba visible")
-            return False
+            # Intentar ocultar directamente sin verificar primero
+            # Esto evita timeouts en is_keyboard_shown() y es más rápido
+            # Si el teclado no está visible, hide_keyboard() simplemente no hará nada
+            self.driver.hide_keyboard()
+            time.sleep(self.min_wait_timeout)
+            logger.debug("AGENT_TOOLS: ✓ Teclado ocultado (o no estaba visible)")
+            return True
         except Exception as e:
-            logger.warning(f"AGENT_TOOLS WARNING: Error al manejar teclado: {e}")
+            # Si falla, puede ser que el teclado no esté visible o haya un error de conexión
+            # No es crítico, solo logueamos como warning/debug
+            error_str = str(e).lower()
+            if "timeout" in error_str or "connection" in error_str:
+                logger.debug(f"AGENT_TOOLS: Timeout/error de conexión al ocultar teclado (probablemente no estaba visible): {type(e).__name__}")
+            else:
+                logger.warning(f"AGENT_TOOLS WARNING: Error al ocultar teclado: {type(e).__name__}: {e}")
             return False
 
     def assert_screen_contains(self, text: str) -> tuple[bool, str]:
@@ -1272,13 +1511,23 @@ class AppiumSkills:
         
         logger.info(f"AGENT_TOOLS: 📡 Consultando webhook...")
         
-        # Hacer POST al webhook
-        response = requests.post(
-            webhook_url,
-            headers=headers,
-            json=body,
-            timeout=10  # Timeout de 10 segundos por request
-        )
+        # Timeout hardcodeado: 35 segundos
+        # El webhook espera hasta 30 segundos escuchando correos, más margen para procesamiento
+        # Si el servicio no responde en este tiempo, requests lanzará una excepción de timeout
+        WEBHOOK_TIMEOUT_SECONDS = 35
+        
+        try:
+            response = requests.post(
+                webhook_url,
+                headers=headers,
+                json=body,
+                timeout=WEBHOOK_TIMEOUT_SECONDS
+            )
+        except requests.exceptions.Timeout:
+            raise requests.exceptions.Timeout(
+                f"El servicio webhook no respondió en el tiempo esperado ({WEBHOOK_TIMEOUT_SECONDS} segundos). "
+                f"El servicio puede estar sobrecargado o no disponible."
+            )
         
         logger.debug(f"AGENT_TOOLS: 📊 Status de respuesta: {response.status_code}")
         
@@ -1332,16 +1581,9 @@ class AppiumSkills:
         Esta herramienta consulta un webhook de n8n que retorna el código
         de verificación más reciente enviado a un correo específico.
         
-        Implementación basada en el patrón de referencia:
-        - Espera 30 segundos iniciales para que llegue el correo
-        - Realiza hasta 3 reintentos con espera de 3 segundos entre cada uno
-        - Valida que el código tenga exactamente 4 dígitos
-        - Incluye header de autenticación gofixiAuth
-        
-        Útil para:
-        - Recuperación de contraseña (código de 4 dígitos)
-        - Verificación de cuenta (código de confirmación)
-        - Cualquier flujo que requiera código enviado por correo
+        El webhook espera hasta 30 segundos escuchando correos entrantes.
+        La función tiene un timeout de 35 segundos para evitar procesos colgados.
+        Si el servicio no responde en ese tiempo, se lanza una excepción de timeout.
         
         Args:
             email: Dirección de correo electrónico a la que se envió el código
@@ -1349,7 +1591,7 @@ class AppiumSkills:
             
         Returns:
             Mensaje con el código obtenido en formato: "Success: Confirmation code obtained for EMAIL: CODE=1234"
-            o mensaje de error si no se pudo obtener después de los reintentos
+            o mensaje de error si no se pudo obtener
         """
         action_name = "get_confirmation_code"
         self._action_stats["total_actions"] += 1
@@ -1359,62 +1601,28 @@ class AppiumSkills:
         
         start_time = time.time()
         
-        # Configuración de reintentos
-        max_retries = 3
-        retry_delay = 3  # segundos entre reintentos
-        initial_wait = 30  # segundos de espera inicial para que llegue el correo
-        
         try:
-            # PASO 1: Esperar 30 segundos para que llegue el correo
-            logger.info(f"AGENT_TOOLS: 🔑 Esperando {initial_wait} segundos para que llegue el correo...")
-            time.sleep(initial_wait)
-            
             logger.info(f"AGENT_TOOLS: 📬 Obteniendo código de confirmación para: {email}")
             
-            code = None
-            last_error = None
+            # Consultar el webhook (tiene timeout hardcodeado de 35 segundos)
+            code = self._fetch_confirmation_code_from_webhook(email)
             
-            # PASO 2: Intentar obtener el código con reintentos
-            for attempt in range(1, max_retries + 1):
-                try:
-                    logger.info(f"AGENT_TOOLS: 📡 Intento {attempt}/{max_retries} - Consultando webhook...")
-                    
-                    # Consultar el webhook (lógica extraída a función separada)
-                    code = self._fetch_confirmation_code_from_webhook(email)
-                    
-                    logger.info(f"AGENT_TOOLS: ✓ Código de confirmación obtenido: {code}")
-                    break  # Salir del loop si se obtuvo el código
-                    
-                except Exception as attempt_error:
-                    last_error = attempt_error
-                    logger.warning(f"AGENT_TOOLS: ⚠️  Intento {attempt} falló: {str(attempt_error)}")
-                    
-                    # Si no es el último intento, esperar antes de reintentar
-                    if attempt < max_retries:
-                        logger.info(f"AGENT_TOOLS: ⏳ Esperando {retry_delay} segundos antes de reintentar...")
-                        time.sleep(retry_delay)
-            
-            # PASO 3: Verificar que se obtuvo el código
-            if not code:
-                elapsed_ms = int((time.time() - start_time) * 1000)
-                error_msg = (
-                    f"Error: No se pudo obtener el código después de {max_retries} intentos. "
-                    f"Último error: {str(last_error) if last_error else 'Desconocido'}"
-                )
-                logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
-                self._action_stats["failed_actions"] += 1
-                return error_msg
-            
-            # PASO 4: Retornar éxito con el código
+            # Retornar éxito con el código
             elapsed_ms = int((time.time() - start_time) * 1000)
             success_msg = f"Success: Confirmation code obtained for {email}: CODE={code}"
             logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
             self._action_stats["successful_actions"] += 1
             return success_msg
             
+        except requests.exceptions.Timeout as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Error: Timeout al obtener código de confirmación para '{email}': {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            error_msg = f"Error: Unexpected error getting confirmation code for email '{email}': {str(e)}"
+            error_msg = f"Error: Error al obtener código de confirmación para '{email}': {str(e)}"
             logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
             logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
             self._action_stats["failed_actions"] += 1

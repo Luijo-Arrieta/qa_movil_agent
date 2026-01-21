@@ -113,6 +113,17 @@ DIÁLOGOS DE CONFIRMACIÓN:
 - En diálogos, elige el botón que MÁS ESPECÍFICAMENTE coincide con la acción que estás confirmando
 - Ejemplo: Si el paso anterior fue "Cerrar sesión" y el diálogo tiene "Salir" y "Cerrar sesión" → Elige "Cerrar sesión"
 
+MANEJO DE POPUPS Y DIÁLOGOS:
+- Si ves un popup/diálogo visible (especialmente cuando solo hay 1-2 elementos visibles y uno es un mensaje de éxito/información):
+  * Y el paso actual requiere ver/interactuar con otra pantalla → DEBES cerrar el popup primero usando touch_out_element
+  * Y el paso actual es "Esperar a ver [pantalla]" → DEBES cerrar el popup primero antes de verificar
+  * Ejemplo: Si ves un ImageView con mensaje "Contraseña restablecida con éxito" y el paso es "Esperar a ver la pantalla de inicio de sesión" → Usa touch_out_element(element_id=0, direction="up", distance_percent=50) para cerrar el popup
+- touch_out_element: Hace clic fuera del elemento visible para cerrar popups/diálogos
+  * Úsalo cuando necesites cerrar un popup que está bloqueando la vista de la pantalla subyacente
+  * Especifica la dirección (up/down/left/right) y distancia (50-100%) basándote en el espacio disponible
+  * El mínimo es 50% para asegurar que el clic esté lo suficientemente lejos del elemento y cierre el popup efectivamente
+  * Si no estás seguro de la dirección, usa "up" con distance_percent=50 como opción segura
+
 RESTRICCIONES/SCOPES:
 - SOLO puedes interactuar con apps configuradas en ALLOWED_APP_PACKAGES
 - Si el paso pide "abrir app" o "activate_app", DEBES usar la herramienta activate_app() directamente
@@ -171,6 +182,11 @@ class QAIV2Orchestrator:
     Orquestador de IA que analiza la UI parseada y decide qué acciones ejecutar.
     """
 
+    # =========================================================================
+    # CONFIGURACIÓN DE API: TIMEOUT, REINTENTOS Y FALLBACK
+    # Valores configurables via .env: AI_API_TIMEOUT, AI_API_MAX_RETRIES, AI_API_RETRY_DELAY
+    # =========================================================================
+
     def __init__(self):
         """Inicializa el orquestador con el proveedor de IA configurado."""
         logger.info("=" * 70)
@@ -187,6 +203,8 @@ class QAIV2Orchestrator:
             "failed_calls": 0,
             "total_tokens_used": 0,
             "total_time_ms": 0,
+            "fallback_used_count": 0,      # Veces que se intentó fallback
+            "fallback_success_count": 0,   # Veces que fallback tuvo éxito
         }
         
         if self.provider == "openai":
@@ -198,38 +216,98 @@ class QAIV2Orchestrator:
             # Verificar formato de API key (debe empezar con sk-)
             if not Config.OPENAI_API_KEY.startswith("sk-"):
                 logger.warning("AI_ORCHESTRATOR WARNING: OPENAI_API_KEY no tiene el formato esperado (sk-...)")
-            
-            self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
+
+            self.client = OpenAI(
+                api_key=Config.OPENAI_API_KEY,
+                timeout=Config.AI_API_TIMEOUT
+            )
             self.model = Config.OPENAI_MODEL
-            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente OpenAI configurado con modelo: {self.model}")
-            
+            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente OpenAI configurado con modelo: {self.model}, timeout: {Config.AI_API_TIMEOUT}s")
+
         elif self.provider == "anthropic":
             logger.debug("AI_ORCHESTRATOR: Configurando cliente Anthropic...")
             if not Config.ANTHROPIC_API_KEY:
                 logger.error("AI_ORCHESTRATOR ERROR: ANTHROPIC_API_KEY no está configurada")
                 raise ValueError("ANTHROPIC_API_KEY no está configurada")
-            
-            self.client = Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+
+            self.client = Anthropic(
+                api_key=Config.ANTHROPIC_API_KEY,
+                timeout=Config.AI_API_TIMEOUT
+            )
             self.model = Config.ANTHROPIC_MODEL
-            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente Anthropic configurado con modelo: {self.model}")
-            
+            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente Anthropic configurado con modelo: {self.model}, timeout: {Config.AI_API_TIMEOUT}s")
+
         elif self.provider == "deepseek":
             logger.debug("AI_ORCHESTRATOR: Configurando cliente DeepSeek...")
             if not Config.DEEPSEEK_API_KEY:
                 logger.error("AI_ORCHESTRATOR ERROR: DEEPSEEK_API_KEY no está configurada")
                 raise ValueError("DEEPSEEK_API_KEY no está configurada")
-            
+
             # DeepSeek es compatible con OpenAI API, solo cambiamos el base_url
             self.client = OpenAI(
                 api_key=Config.DEEPSEEK_API_KEY,
-                base_url="https://api.deepseek.com"
+                base_url="https://api.deepseek.com",
+                timeout=Config.AI_API_TIMEOUT
             )
             self.model = Config.DEEPSEEK_MODEL
-            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente DeepSeek configurado con modelo: {self.model}")
+            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente DeepSeek configurado con modelo: {self.model}, timeout: {Config.AI_API_TIMEOUT}s")
             
         else:
             logger.error(f"AI_ORCHESTRATOR ERROR: Proveedor no soportado: {self.provider}")
             raise ValueError(f"Proveedor de IA no soportado: {self.provider}")
+
+        # Inicializar clientes de fallback si está habilitado
+        self.fallback_clients: Dict[str, Any] = {}
+        self.fallback_models: Dict[str, str] = {}
+        if Config.AI_FALLBACK_ENABLED and Config.AI_FALLBACK_PROVIDERS:
+            self._initialize_fallback_providers()
+
+    def _initialize_fallback_providers(self) -> None:
+        """Inicializa clientes de fallback para proveedores configurados."""
+        logger.info("AI_ORCHESTRATOR: Inicializando proveedores de fallback...")
+
+        for provider in Config.AI_FALLBACK_PROVIDERS:
+            # Saltar proveedor primario
+            if provider == self.provider:
+                logger.debug(f"AI_ORCHESTRATOR: Saltando {provider} (es el proveedor primario)")
+                continue
+
+            try:
+                if provider == "openai" and Config.OPENAI_API_KEY:
+                    self.fallback_clients["openai"] = OpenAI(
+                        api_key=Config.OPENAI_API_KEY,
+                        timeout=Config.AI_API_TIMEOUT
+                    )
+                    self.fallback_models["openai"] = Config.OPENAI_MODEL
+                    logger.info(f"AI_ORCHESTRATOR: ✓ Fallback 'openai' inicializado (modelo: {Config.OPENAI_MODEL})")
+
+                elif provider == "anthropic" and Config.ANTHROPIC_API_KEY:
+                    self.fallback_clients["anthropic"] = Anthropic(
+                        api_key=Config.ANTHROPIC_API_KEY,
+                        timeout=Config.AI_API_TIMEOUT
+                    )
+                    self.fallback_models["anthropic"] = Config.ANTHROPIC_MODEL
+                    logger.info(f"AI_ORCHESTRATOR: ✓ Fallback 'anthropic' inicializado (modelo: {Config.ANTHROPIC_MODEL})")
+
+                elif provider == "deepseek" and Config.DEEPSEEK_API_KEY:
+                    self.fallback_clients["deepseek"] = OpenAI(
+                        api_key=Config.DEEPSEEK_API_KEY,
+                        base_url="https://api.deepseek.com",
+                        timeout=Config.AI_API_TIMEOUT
+                    )
+                    self.fallback_models["deepseek"] = Config.DEEPSEEK_MODEL
+                    logger.info(f"AI_ORCHESTRATOR: ✓ Fallback 'deepseek' inicializado (modelo: {Config.DEEPSEEK_MODEL})")
+
+                else:
+                    logger.warning(f"AI_ORCHESTRATOR: No se pudo inicializar fallback '{provider}' (API key no configurada o proveedor desconocido)")
+
+            except Exception as e:
+                logger.warning(f"AI_ORCHESTRATOR: Error inicializando fallback '{provider}': {e}")
+
+        if self.fallback_clients:
+            logger.info(f"AI_ORCHESTRATOR: Fallback habilitado con {len(self.fallback_clients)} proveedor(es): {list(self.fallback_clients.keys())}")
+        else:
+            logger.warning("AI_ORCHESTRATOR: Fallback habilitado pero ningún proveedor adicional disponible")
 
     def decide_next_action(
         self,
@@ -314,6 +392,19 @@ class QAIV2Orchestrator:
             self._call_stats["failed_calls"] += 1
             logger.error(f"AI_ORCHESTRATOR ERROR: Fallo en llamada #{call_number} después de {elapsed_ms}ms")
             logger.error(f"AI_ORCHESTRATOR ERROR: {type(e).__name__}: {str(e)}")
+
+            # Intentar fallback si está habilitado
+            fallback_result = self._try_fallback_provider(
+                call_type="action",
+                context=llm_context,
+                tools=tools,
+                primary_error=e,
+            )
+            if fallback_result is not None:
+                logger.info(f"AI_ORCHESTRATOR: ✓ Fallback exitoso con '{fallback_result.get('fallback_provider', 'unknown')}'")
+                return fallback_result
+
+            # No hay fallback o todos fallaron
             logger.error(f"AI_ORCHESTRATOR ERROR: Traceback:\n{traceback.format_exc()}")
             raise
 
@@ -334,7 +425,7 @@ class QAIV2Orchestrator:
         # Comentar/descomentar líneas para cambiar qué propiedades se eliminan
         properties_to_remove = {
             "bounds",      # Coordenadas de pantalla (no necesarias para identificación)
-            "clickable",   # Estado clickable (redundante, todos los elementos visibles son clickables)
+            # "clickable", # Estado clickable - INCLUIDO: importante para que el LLM sepa qué elementos son clickables
             "enabled",     # Estado habilitado (redundante)
             "displayed",   # Estado visible (redundante, solo elementos visibles están en la lista)
         }
@@ -494,6 +585,152 @@ class QAIV2Orchestrator:
 
         return self._build_llm_context(ctx, ui_elements)
 
+    def _is_retryable_error(self, error: Exception) -> bool:
+        """
+        Determina si un error es recuperable y debe reintentarse.
+        
+        Args:
+            error: Excepción a evaluar
+            
+        Returns:
+            True si el error es recuperable (timeout/red), False en caso contrario
+        """
+        error_type = type(error).__name__
+        error_str = str(error).lower()
+        
+        # Obtener traceback completo para detectar errores SSL en la cadena de llamadas
+        traceback_str = traceback.format_exc().lower()
+        
+        # Errores de timeout/red que son recuperables
+        retryable_patterns = [
+            "timeout",
+            "connection",
+            "read timeout",
+            "connect timeout",
+            "ssl",
+            "network",
+            "socket",
+            "temporary failure",
+            "connection reset",
+            "connection aborted",
+            "broken pipe",
+            "_sslobj",  # Errores específicos de SSL en Python
+            "ssl.py",   # Archivo donde ocurren errores SSL
+        ]
+        
+        # Verificar por tipo de excepción
+        retryable_types = [
+            "Timeout",
+            "TimeoutError",
+            "ConnectionError",
+            "ReadTimeout",
+            "ConnectTimeout",
+            "SSLError",
+            "SSLZeroReturnError",
+            "SSLSyscallError",
+            "SSLEOFError",
+        ]
+        
+        # Verificar si el tipo de excepción es recuperable
+        if any(retryable_type in error_type for retryable_type in retryable_types):
+            return True
+        
+        # Verificar si el mensaje contiene patrones recuperables
+        if any(pattern in error_str for pattern in retryable_patterns):
+            return True
+        
+        # Verificar si el traceback contiene patrones recuperables (para errores SSL profundos)
+        if any(pattern in traceback_str for pattern in retryable_patterns):
+            return True
+
+        return False
+
+    def _try_fallback_provider(
+        self,
+        call_type: str,
+        context: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        primary_error: Optional[Exception] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Intenta ejecutar la llamada con proveedores de fallback.
+
+        Args:
+            call_type: Tipo de llamada ("action" para decide_next_action, "completion" para decide_step_completion)
+            context: Contexto LLM a enviar
+            tools: Definición de herramientas (solo para call_type="action")
+            primary_error: Error del proveedor primario
+
+        Returns:
+            Resultado de la llamada si un fallback tiene éxito, None si todos fallan
+        """
+        if not Config.AI_FALLBACK_ENABLED or not self.fallback_clients:
+            return None
+
+        providers_tried = [self.provider]
+        logger.warning(f"AI_ORCHESTRATOR FALLBACK: Proveedor primario '{self.provider}' falló. Intentando fallback...")
+
+        for fallback_provider in Config.AI_FALLBACK_PROVIDERS:
+            # Saltar proveedores ya intentados o no disponibles
+            if fallback_provider in providers_tried:
+                continue
+            if fallback_provider not in self.fallback_clients:
+                continue
+
+            providers_tried.append(fallback_provider)
+            logger.info(f"AI_ORCHESTRATOR FALLBACK: Intentando con '{fallback_provider}'...")
+
+            # Guardar estado original
+            original_client = self.client
+            original_model = self.model
+            original_provider = self.provider
+
+            try:
+                # Cambiar temporalmente al cliente de fallback
+                self.client = self.fallback_clients[fallback_provider]
+                self.model = self.fallback_models[fallback_provider]
+                self.provider = fallback_provider
+
+                # Ejecutar la llamada según el tipo
+                if call_type == "action":
+                    if fallback_provider in ["openai", "deepseek"]:
+                        result = self._call_openai(context, tools)
+                    else:  # anthropic
+                        result = self._call_anthropic(context, tools)
+                else:  # completion
+                    if fallback_provider in ["openai", "deepseek"]:
+                        raw_response = self._call_openai_completion(context)
+                    else:  # anthropic
+                        raw_response = self._call_anthropic_completion(context)
+                    # Para completion, retornamos el string directamente
+                    result = {"raw_response": raw_response, "fallback_used": True}
+
+                # Éxito - actualizar stats
+                self._call_stats["fallback_success_count"] = self._call_stats.get("fallback_success_count", 0) + 1
+                logger.info(f"AI_ORCHESTRATOR FALLBACK: ✓ '{fallback_provider}' exitoso")
+
+                # Marcar que se usó fallback
+                if isinstance(result, dict):
+                    result["fallback_used"] = True
+                    result["fallback_provider"] = fallback_provider
+                    result["original_provider"] = original_provider
+
+                return result
+
+            except Exception as fallback_error:
+                logger.warning(f"AI_ORCHESTRATOR FALLBACK: '{fallback_provider}' también falló: {type(fallback_error).__name__}: {fallback_error}")
+
+            finally:
+                # Restaurar cliente original
+                self.client = original_client
+                self.model = original_model
+                self.provider = original_provider
+
+        # Todos los fallback fallaron
+        self._call_stats["fallback_used_count"] = self._call_stats.get("fallback_used_count", 0) + 1
+        logger.error(f"AI_ORCHESTRATOR FALLBACK: Todos los proveedores fallaron. Intentados: {providers_tried}")
+        return None
+
     def _get_tools_definition(self) -> List[Dict[str, Any]]:
         """
         Retorna la definición de herramientas para function calling.
@@ -516,6 +753,34 @@ class QAIV2Orchestrator:
                             }
                         },
                         "required": ["element_id"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "touch_out_element",
+                    "description": "Hace clic fuera de un elemento visible. Útil para cerrar popups o diálogos haciendo clic fuera del contenido visible. Especifica la dirección (up/down/left/right) y qué tan lejos hacer clic (50-100%, donde 100% es el máximo espacio disponible en esa dirección y 50% es el mínimo seguro).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "element_id": {
+                                "type": "integer",
+                                "description": "ID del elemento visible (del listado de elementos disponibles). Se hará clic fuera de este elemento.",
+                            },
+                            "direction": {
+                                "type": "string",
+                                "enum": ["up", "down", "left", "right"],
+                                "description": "Dirección donde hacer clic fuera del elemento: 'up' (arriba), 'down' (abajo), 'left' (izquierda), 'right' (derecha)",
+                            },
+                            "distance_percent": {
+                                "type": "integer",
+                                "description": "Distancia como porcentaje del espacio disponible (50-100). 100% = máximo espacio disponible en esa dirección, 50% = mínimo seguro para cerrar popups efectivamente",
+                                "minimum": 50,
+                                "maximum": 100,
+                            }
+                        },
+                        "required": ["element_id", "direction", "distance_percent"],
                     },
                 },
             },
@@ -683,6 +948,7 @@ class QAIV2Orchestrator:
     def _call_openai(self, context: str, tools: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Llama a OpenAI con el contexto y herramientas.
+        Implementa reintentos automáticos para timeouts y errores de red.
 
         Args:
             context: Contexto formateado
@@ -702,24 +968,59 @@ class QAIV2Orchestrator:
         logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del system prompt: {len(SYSTEM_PROMPT)} chars")
         logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del contexto: {len(context)} chars")
 
-        try:
-            logger.debug("AI_ORCHESTRATOR [OpenAI]: Enviando request...")
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                temperature=0.2,  # Baja temperatura para decisiones más determinísticas
-                store=True,  # Habilita almacenamiento en OpenAI Platform (logs/traces)
-            )
-            logger.debug("AI_ORCHESTRATOR [OpenAI]: ✓ Response recibido")
-            
-        except Exception as e:
-            logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: Fallo en API call")
-            logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: {type(e).__name__}: {str(e)}")
+        # Reintentos configurables via Config (AI_API_MAX_RETRIES, AI_API_RETRY_DELAY, AI_API_TIMEOUT)
+        max_retries = Config.AI_API_MAX_RETRIES
+        retry_delay = Config.AI_API_RETRY_DELAY
+        timeout = Config.AI_API_TIMEOUT
+
+        last_error = None
+        for attempt in range(1, max_retries + 2):  # +2 porque range excluye el último y queremos max_retries reintentos
+            try:
+                if attempt > 1:
+                    logger.info(f"AI_ORCHESTRATOR [OpenAI]: Reintento {attempt - 1}/{max_retries}...")
+                    time.sleep(retry_delay)
+
+                logger.debug("AI_ORCHESTRATOR [OpenAI]: Enviando request...")
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=0.2,  # Baja temperatura para decisiones más determinísticas
+                    store=True,  # Habilita almacenamiento en OpenAI Platform (logs/traces)
+                    timeout=timeout,
+                )
+                logger.debug("AI_ORCHESTRATOR [OpenAI]: ✓ Response recibido")
+                
+                # Si llegamos aquí, la llamada fue exitosa
+                break
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"AI_ORCHESTRATOR [OpenAI] WARNING: Intento {attempt}/{max_retries + 1} falló")
+                logger.warning(f"AI_ORCHESTRATOR [OpenAI] WARNING: {type(e).__name__}: {str(e)}")
+
+                # Verificar si es un error recuperable
+                is_retryable = self._is_retryable_error(e)
+                if is_retryable:
+                    if attempt < max_retries + 1:
+                        logger.info(f"AI_ORCHESTRATOR [OpenAI]: Error recuperable detectado (timeout/red/SSL). Reintentando... (intento {attempt}/{max_retries})")
+                        # El sleep se ejecuta al inicio del siguiente intento (cuando attempt > 1)
+                        continue
+                    else:
+                        logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: Se agotaron los reintentos ({max_retries}) para error recuperable")
+                else:
+                    # Error no recuperable, fallar inmediatamente
+                    logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: Error no recuperable detectado. No se reintentará.")
+                    break
+
+        # Si llegamos aquí y last_error no es None, todos los intentos fallaron
+        if last_error is not None:
+            logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: Fallo en API call después de {max_retries + 1} intentos")
+            logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: {type(last_error).__name__}: {str(last_error)}")
             
             # Diagnóstico de errores comunes
-            error_str = str(e).lower()
+            error_str = str(last_error).lower()
             if "authentication" in error_str or "api key" in error_str:
                 logger.error("AI_ORCHESTRATOR [OpenAI] DIAGNÓSTICO: Problema de autenticación. Verifica OPENAI_API_KEY")
             elif "rate limit" in error_str:
@@ -729,7 +1030,7 @@ class QAIV2Orchestrator:
             elif "timeout" in error_str or "connection" in error_str:
                 logger.error("AI_ORCHESTRATOR [OpenAI] DIAGNÓSTICO: Problema de conexión/timeout")
             
-            raise
+            raise last_error
 
         message = response.choices[0].message
         
@@ -776,6 +1077,7 @@ class QAIV2Orchestrator:
     def _call_anthropic(self, context: str, tools: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Llama a Anthropic con el contexto y herramientas.
+        Implementa reintentos automáticos para timeouts y errores de red.
 
         Args:
             context: Contexto formateado
@@ -801,25 +1103,60 @@ class QAIV2Orchestrator:
         logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del system prompt: {len(SYSTEM_PROMPT)} chars")
         logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del contexto: {len(context)} chars")
 
-        try:
-            logger.debug("AI_ORCHESTRATOR [Anthropic]: Enviando request...")
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=1024,
-                system=SYSTEM_PROMPT,
-                messages=[
-                    {"role": "user", "content": context},
-                ],
-                tools=anthropic_tools,
-            )
-            logger.debug("AI_ORCHESTRATOR [Anthropic]: ✓ Response recibido")
-            
-        except Exception as e:
-            logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: Fallo en API call")
-            logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: {type(e).__name__}: {str(e)}")
+        # Reintentos configurables via Config
+        max_retries = Config.AI_API_MAX_RETRIES
+        retry_delay = Config.AI_API_RETRY_DELAY
+        timeout = Config.AI_API_TIMEOUT
+
+        last_error = None
+        for attempt in range(1, max_retries + 2):  # +2 porque range excluye el último y queremos max_retries reintentos
+            try:
+                if attempt > 1:
+                    logger.info(f"AI_ORCHESTRATOR [Anthropic]: Reintento {attempt - 1}/{max_retries}...")
+                    time.sleep(retry_delay)
+
+                logger.debug("AI_ORCHESTRATOR [Anthropic]: Enviando request...")
+                message = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=1024,
+                    system=SYSTEM_PROMPT,
+                    messages=[
+                        {"role": "user", "content": context},
+                    ],
+                    tools=anthropic_tools,
+                    timeout=timeout,
+                )
+                logger.debug("AI_ORCHESTRATOR [Anthropic]: ✓ Response recibido")
+
+                # Si llegamos aquí, la llamada fue exitosa
+                break
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"AI_ORCHESTRATOR [Anthropic] WARNING: Intento {attempt}/{max_retries + 1} falló")
+                logger.warning(f"AI_ORCHESTRATOR [Anthropic] WARNING: {type(e).__name__}: {str(e)}")
+
+                # Verificar si es un error recuperable
+                is_retryable = self._is_retryable_error(e)
+                if is_retryable:
+                    if attempt < max_retries + 1:
+                        logger.info(f"AI_ORCHESTRATOR [Anthropic]: Error recuperable detectado (timeout/red/SSL). Reintentando... (intento {attempt}/{max_retries})")
+                        # El sleep se ejecuta al inicio del siguiente intento (cuando attempt > 1)
+                        continue
+                    else:
+                        logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: Se agotaron los reintentos ({max_retries}) para error recuperable")
+                else:
+                    # Error no recuperable, fallar inmediatamente
+                    logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: Error no recuperable detectado. No se reintentará.")
+                    break
+
+        # Si llegamos aquí y last_error no es None, todos los intentos fallaron
+        if last_error is not None:
+            logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: Fallo en API call después de {max_retries + 1} intentos")
+            logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: {type(last_error).__name__}: {str(last_error)}")
             
             # Diagnóstico de errores comunes
-            error_str = str(e).lower()
+            error_str = str(last_error).lower()
             if "authentication" in error_str or "api key" in error_str or "invalid x-api-key" in error_str:
                 logger.error("AI_ORCHESTRATOR [Anthropic] DIAGNÓSTICO: Problema de autenticación. Verifica ANTHROPIC_API_KEY")
             elif "rate limit" in error_str:
@@ -829,7 +1166,7 @@ class QAIV2Orchestrator:
             elif "timeout" in error_str or "connection" in error_str:
                 logger.error("AI_ORCHESTRATOR [Anthropic] DIAGNÓSTICO: Problema de conexión/timeout")
             
-            raise
+            raise last_error
 
         # Log detalles de la respuesta
         logger.debug(f"AI_ORCHESTRATOR [Anthropic]: stop_reason: {message.stop_reason}")
@@ -950,13 +1287,25 @@ class QAIV2Orchestrator:
             self._call_stats["failed_calls"] += 1
             logger.error(f"AI_ORCHESTRATOR ERROR: Fallo en llamada de completitud #{call_number} después de {elapsed_ms}ms")
             logger.error(f"AI_ORCHESTRATOR ERROR: {type(e).__name__}: {str(e)}")
+
+            # Intentar fallback si está habilitado
+            fallback_result = self._try_fallback_provider(
+                call_type="completion",
+                context=llm_context,
+                primary_error=e,
+            )
+            if fallback_result is not None and "raw_response" in fallback_result:
+                logger.info(f"AI_ORCHESTRATOR: ✓ Fallback de completitud exitoso con '{fallback_result.get('fallback_provider', 'unknown')}'")
+                parsed = self._parse_completion_response(fallback_result["raw_response"])
+                return parsed
+
+            # No hay fallback o todos fallaron - retornar valores por defecto
             logger.error(f"AI_ORCHESTRATOR ERROR: Traceback:\n{traceback.format_exc()}")
-            # Retornar valores por defecto en caso de error
             return {
                 "step_completed": False,
                 "reason": f"Error checking completion: {str(e)}"
             }
-    
+
     def _build_completion_context(
         self,
         context: StepContext,
@@ -1103,6 +1452,7 @@ class QAIV2Orchestrator:
     def _call_openai_completion(self, context: str) -> str:
         """
         Llama a OpenAI para determinar completitud (sin tools, solo texto).
+        Implementa reintentos automáticos para timeouts y errores de red.
         """
         COMPLETION_SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional.
 
@@ -1124,24 +1474,59 @@ Responde con un bloque TOON con la siguiente estructura:
             {"role": "system", "content": COMPLETION_SYSTEM_PROMPT},
             {"role": "user", "content": context},
         ]
+
+        # Reintentos configurables via Config
+        max_retries = Config.AI_API_MAX_RETRIES
+        retry_delay = Config.AI_API_RETRY_DELAY
+        timeout = Config.AI_API_TIMEOUT
+
+        last_error = None
+        for attempt in range(1, max_retries + 2):  # +2 porque range excluye el último y queremos max_retries reintentos
+            try:
+                if attempt > 1:
+                    logger.info(f"AI_ORCHESTRATOR [OpenAI] Completitud: Reintento {attempt - 1}/{max_retries}...")
+                    time.sleep(retry_delay)
+
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.2,
+                    timeout=timeout,
+                )
+
+                message = response.choices[0].message
+                return message.content or ""
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"AI_ORCHESTRATOR [OpenAI] Completitud WARNING: Intento {attempt}/{max_retries + 1} falló")
+                logger.warning(f"AI_ORCHESTRATOR [OpenAI] Completitud WARNING: {type(e).__name__}: {str(e)}")
+
+                # Verificar si es un error recuperable
+                is_retryable = self._is_retryable_error(e)
+                if is_retryable:
+                    if attempt < max_retries + 1:
+                        logger.info(f"AI_ORCHESTRATOR [OpenAI] Completitud: Error recuperable detectado (timeout/red/SSL). Reintentando en {retry_delay}s... (intento {attempt}/{max_retries})")
+                        continue
+                    else:
+                        logger.error(f"AI_ORCHESTRATOR [OpenAI] Completitud ERROR: Se agotaron los reintentos ({max_retries}) para error recuperable")
+                else:
+                    # Error no recuperable, fallar inmediatamente
+                    logger.error(f"AI_ORCHESTRATOR [OpenAI] Completitud ERROR: Error no recuperable detectado. No se reintentará.")
+                    break
+
+        # Si llegamos aquí, todos los intentos fallaron
+        if last_error is not None:
+            logger.error(f"AI_ORCHESTRATOR [OpenAI] Completitud ERROR: Fallo después de {max_retries + 1} intentos: {last_error}")
+            raise last_error
         
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.2,
-            )
-            
-            message = response.choices[0].message
-            return message.content or ""
-            
-        except Exception as e:
-            logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: Fallo en llamada de completitud: {e}")
-            raise
+        # No debería llegar aquí, pero por si acaso
+        raise RuntimeError("Error desconocido en _call_openai_completion")
     
     def _call_anthropic_completion(self, context: str) -> str:
         """
         Llama a Anthropic para determinar completitud (sin tools, solo texto).
+        Implementa reintentos automáticos para timeouts y errores de red.
         """
         COMPLETION_SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional.
 
@@ -1158,30 +1543,64 @@ Responde con un bloque TOON con la siguiente estructura:
 
 - step_completed: "true" o "false"
 - reason: Texto explicativo breve entre comillas"""
+
+        # Reintentos configurables via Config
+        max_retries = Config.AI_API_MAX_RETRIES
+        retry_delay = Config.AI_API_RETRY_DELAY
+        timeout = Config.AI_API_TIMEOUT
+
+        last_error = None
+        for attempt in range(1, max_retries + 2):  # +2 porque range excluye el último y queremos max_retries reintentos
+            try:
+                if attempt > 1:
+                    logger.info(f"AI_ORCHESTRATOR [Anthropic] Completitud: Reintento {attempt - 1}/{max_retries}...")
+                    time.sleep(retry_delay)
+
+                message = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=512,
+                    system=COMPLETION_SYSTEM_PROMPT,
+                    messages=[
+                        {"role": "user", "content": context},
+                    ],
+                    timeout=timeout,
+                )
+
+                # Extraer mensaje de texto
+                text_message = None
+                if message.content:
+                    for content_block in message.content:
+                        if hasattr(content_block, 'type') and content_block.type == 'text':
+                            text_message = content_block.text
+                            break
+
+                return text_message or ""
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"AI_ORCHESTRATOR [Anthropic] Completitud WARNING: Intento {attempt}/{max_retries + 1} falló")
+                logger.warning(f"AI_ORCHESTRATOR [Anthropic] Completitud WARNING: {type(e).__name__}: {str(e)}")
+
+                # Verificar si es un error recuperable
+                is_retryable = self._is_retryable_error(e)
+                if is_retryable:
+                    if attempt < max_retries + 1:
+                        logger.info(f"AI_ORCHESTRATOR [Anthropic] Completitud: Error recuperable detectado (timeout/red/SSL). Reintentando en {retry_delay}s... (intento {attempt}/{max_retries})")
+                        continue
+                    else:
+                        logger.error(f"AI_ORCHESTRATOR [Anthropic] Completitud ERROR: Se agotaron los reintentos ({max_retries}) para error recuperable")
+                else:
+                    # Error no recuperable, fallar inmediatamente
+                    logger.error(f"AI_ORCHESTRATOR [Anthropic] Completitud ERROR: Error no recuperable detectado. No se reintentará.")
+                    break
         
-        try:
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=512,
-                system=COMPLETION_SYSTEM_PROMPT,
-                messages=[
-                    {"role": "user", "content": context},
-                ],
-            )
-            
-            # Extraer mensaje de texto
-            text_message = None
-            if message.content:
-                for content_block in message.content:
-                    if hasattr(content_block, 'type') and content_block.type == 'text':
-                        text_message = content_block.text
-                        break
-            
-            return text_message or ""
-            
-        except Exception as e:
-            logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: Fallo en llamada de completitud: {e}")
-            raise
+        # Si llegamos aquí, todos los intentos fallaron
+        if last_error is not None:
+            logger.error(f"AI_ORCHESTRATOR [Anthropic] Completitud ERROR: Fallo después de {max_retries + 1} intentos: {last_error}")
+            raise last_error
+        
+        # No debería llegar aquí, pero por si acaso
+        raise RuntimeError("Error desconocido en _call_anthropic_completion")
     
     def get_stats(self) -> Dict[str, Any]:
         """

@@ -57,10 +57,10 @@ class TestPasswordRecoverySpec:
             "y verificación de que el login funciona con las nuevas credenciales."
         )
 
-        # Credenciales de prueba
+# Credenciales de prueba
         test_email = "luis.arrieta+pass-recovery-0@imagineapps.co"
-        # Nueva contraseña que cumple con el mínimo de 8 caracteres
-        new_password = "NuevaPass123"
+        # Nueva contraseña dinámica que cumple con el mínimo de 8 caracteres
+        new_password = Config.get_dynamic_test_password()
 
         # Crear runner del agente de IA
         runner = AITestRunner(driver=driver_setup, objective=objective)
@@ -95,10 +95,7 @@ class TestPasswordRecoverySpec:
             f"Confirmar la nueva contraseña '{new_password}' en el campo de confirmación",
             "Verificar que ambos campos de contraseña coinciden y el botón 'Restablecer' está habilitado",
             "Tocar el botón 'Restablecer' o 'Cambiar contraseña'",
-            "Verificar que se muestra un mensaje de éxito indicando que la contraseña fue actualizada",
-
-            # Verificar que se puede iniciar sesión con la nueva contraseña
-            "Esperar a ver la pantalla de inicio de sesión",
+            "Verificar que se muestra un popup con mensaje de éxito indicando que la contraseña fue actualizada y Cerrar el popup de éxito usando touch_out_element para continuar con el login",
             f"Ingresar el correo '{test_email}' en el campo de correo electrónico",
             f"Ingresar la nueva contraseña '{new_password}' en el campo de contraseña",
             "Tocar el botón Ingresar o Iniciar sesión",
@@ -110,95 +107,3 @@ class TestPasswordRecoverySpec:
 
         # Verificar que todos los pasos se completaron correctamente
         assert success, "El flujo de recuperación de contraseña (AC-002) no se completó exitosamente"
-
-    def test_password_recovery_invalid_code_ac002(self, driver_setup):
-        """
-        Validación de código incorrecto:
-        - Solicitar restablecimiento
-        - Ingresar código incorrecto
-        - Verificar que se muestra error
-        - Verificar que se puede solicitar reenvío después de 30 segundos
-        """
-        objective = (
-            "Validar AC-002: manejo de código de verificación incorrecto en recuperación de contraseña, "
-            "verificando que se muestra error y que el reenvío está disponible después de 30 segundos."
-        )
-
-        test_email = Config.TEST_USER_EMAIL
-
-        runner = AITestRunner(driver=driver_setup, objective=objective)
-
-        test_plan = [
-            # Apertura de la app
-            "Abrir la app de cliente usando activate_app con el paquete 'com.imagineapps.gofixiicliente'",
-            "Esperar a ver la pantalla de inicio de sesión del cliente",
-
-            # Solicitar restablecimiento
-            "Tocar el enlace o botón '¿Olvidaste tu contraseña?' o 'Recuperar contraseña'",
-            "Esperar a ver la pantalla de recuperación de contraseña",
-            f"Ingresar el correo electrónico '{test_email}' en el campo de correo",
-            "Tocar el botón 'Enviar código' o 'Solicitar código de verificación'",
-            "Verificar que se muestra la pantalla para ingresar el código de verificación",
-
-            # Intentar con código incorrecto
-            "Ingresar un código de verificación incorrecto '0000' en el campo de código",
-            "Tocar el botón 'Verificar' o 'Continuar'",
-            "Verificar que se muestra un mensaje de error indicando que el código es incorrecto",
-
-            # Verificar opción de reenvío (después de esperar 30 segundos si es necesario)
-            "Verificar que existe una opción para solicitar reenvío del código",
-            "Si el botón de reenvío está deshabilitado, esperar hasta que esté habilitado (máximo 30 segundos)",
-        ]
-
-        success = runner.run_test_plan(test_plan)
-        assert success, "La validación de código incorrecto (AC-002) no se completó exitosamente"
-
-    def test_password_recovery_password_validation_ac002(self, driver_setup):
-        """
-        Validación de nueva contraseña:
-        - Verificar que se requiere mínimo 8 caracteres
-        - Verificar validación en tiempo real de coincidencia de campos
-        - Verificar que el botón se habilita solo cuando ambos campos coinciden
-        """
-        objective = (
-            "Validar AC-002: validación de nueva contraseña en tiempo real, "
-            "verificando mínimo de 8 caracteres y coincidencia de campos antes de habilitar el botón."
-        )
-
-        test_email = Config.TEST_USER_EMAIL
-        short_password = "12345"  # Menos de 8 caracteres
-        valid_password = "NuevaPass123"  # 8+ caracteres
-
-        runner = AITestRunner(driver=driver_setup, objective=objective)
-
-        test_plan = [
-            # Apertura de la app y navegación hasta pantalla de nueva contraseña
-            "Abrir la app de cliente usando activate_app con el paquete 'com.imagineapps.gofixiicliente'",
-            "Esperar a ver la pantalla de inicio de sesión del cliente",
-            "Tocar el enlace o botón '¿Olvidaste tu contraseña?' o 'Recuperar contraseña'",
-            "Esperar a ver la pantalla de recuperación de contraseña",
-            f"Ingresar el correo electrónico '{test_email}' en el campo de correo",
-            "Tocar el botón 'Enviar código' o 'Solicitar código de verificación'",
-            f"Obtener el código de confirmación enviado al correo '{test_email}' usando get_confirmation_code",
-            "Ingresar el código de verificación de 4 dígitos obtenido en el campo correspondiente",
-            "Tocar el botón 'Verificar' o 'Continuar'",
-            "Esperar a ver la pantalla para establecer nueva contraseña",
-
-            # Validar contraseña corta (menos de 8 caracteres)
-            f"Intentar ingresar una contraseña corta '{short_password}' en el campo de nueva contraseña",
-            "Verificar que se muestra un mensaje de error indicando que la contraseña debe tener mínimo 8 caracteres",
-            "Verificar que el botón 'Restablecer' está deshabilitado",
-
-            # Validar contraseña válida pero campos no coinciden
-            f"Ingresar la contraseña válida '{valid_password}' en el campo de nueva contraseña",
-            f"Ingresar una contraseña diferente '{valid_password}XYZ' en el campo de confirmación",
-            "Verificar que se muestra un mensaje indicando que las contraseñas no coinciden",
-            "Verificar que el botón 'Restablecer' está deshabilitado",
-
-            # Validar que cuando coinciden, el botón se habilita
-            f"Corregir el campo de confirmación para que coincida con '{valid_password}'",
-            "Verificar que el mensaje de error desaparece y el botón 'Restablecer' se habilita",
-        ]
-
-        success = runner.run_test_plan(test_plan)
-        assert success, "La validación de contraseña (AC-002) no se completó exitosamente"

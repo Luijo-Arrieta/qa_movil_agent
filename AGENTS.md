@@ -31,10 +31,10 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 5. Agent Tools executes action via Appium using the XPath
 
 **Key Components:**
-- `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs. Generates hierarchical XPaths similar to Appium Inspector (short, readable paths).
-- `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert)
-- `src/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic/DeepSeek) with function calling. Uses TOON format for token efficiency.
-- `src/test_runner.py` - Orchestrates test execution with intelligent retry system (max 3 attempts per step)
+- `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs. Generates hierarchical XPaths similar to Appium Inspector (short, readable paths). Filters out large containers (>95% screen), containers with interactable children, and masked content-desc elements.
+- `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert, touch_out_element, get_confirmation_code)
+- `src/v2/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic/DeepSeek) with function calling. Uses TOON format for token efficiency. **Note:** v2 is the current version.
+- `src/v2/test_runner.py` - Orchestrates test execution with intelligent retry system (max 3 attempts per step). **Note:** v2 is the current version.
 - `src/config.py` - Environment configuration. Loads `.env` then `.env.local` (override)
 
 ## Error Handling and Retry System
@@ -338,6 +338,12 @@ UIParser returns elements with a consistent structure using `{id, attrs}`:
 - `EditText` elements (inputs) - always included
 - `ImageView` + clickable (image buttons) - always included
 
+**Exclusion Rules:**
+- Elements covering >95% of the screen (full-screen overlays) - always excluded
+- Clickable containers that have interactable children (EditText or clickable ImageView) - excluded
+- Clickable elements with `content-desc` matching mask patterns (e.g., "**********") - excluded
+- Large containers (>80% screen) without clickable status or useful identifiers - excluded
+
 ### XPath Generation (Hierarchical)
 
 UIParser generates **short, hierarchical XPaths** similar to Appium Inspector:
@@ -373,6 +379,8 @@ For communication with LLMs, elements are flattened and converted to **TOON (Tok
   2		android.widget.EditText	//android.view.View[@content-desc="Login"]/android.widget.EditText[2]	true	true
 ```
 
+**Note:** The `clickable` attribute is included in TOON format to help the LLM identify interactable elements.
+
 **Data Flow:**
 1. UIParser generates `{id, attrs: [{name, value}]}` internally with hierarchical XPaths
 2. AI Orchestrator flattens to `{id, content-desc, class, ...}` for TOON
@@ -390,6 +398,7 @@ The LLM can use these tools via function calling:
 
 ### UI Interaction Tools
 - `touch_element_by_id(element_id)` - Click element by ID
+- `touch_out_element(element_id, direction, distance_percent)` - Click outside a visible element to close popups/dialogs. Direction: "up", "down", "left", or "right". Distance: 50-100% of available space (50% minimum for effective popup closing). **Use this when a popup/dialog is blocking the view and you need to interact with the underlying screen.**
 - `fill_field_by_id(element_id, value)` - Type text in input by ID
 - `scroll(direction)` - Scroll up/down
 - `go_back()` - Press back button
@@ -401,6 +410,9 @@ For tests requiring multiple apps (e.g., Customer ↔ Technical flows):
 - `terminate_app(app_package)` - Close app completely
 - `switch_to_app(app_package)` - Switch to app, closing current one (clean state)
 - `switch_to_app_keep_background(app_package)` - Switch keeping current in background (fast round-trips)
+
+### External Integration Tools
+- `get_confirmation_code(email)` - Gets confirmation code sent by email. Executes immediately (no initial wait). The webhook waits up to 30 seconds listening for incoming emails. Has a 35-second timeout. Returns format: "Success: Confirmation code obtained for EMAIL: CODE=1234" or error message if timeout occurs.
 
 **App States (Appium):**
 | Code | State | Description |
