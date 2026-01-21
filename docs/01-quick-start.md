@@ -44,10 +44,12 @@ poetry install
 Abre una **nueva terminal** (deja la anterior abierta) y ejecuta:
 
 ```bash
-emulator -avd nombre_de_tu_emulador
+emulator -avd phone_test -no-snapshot-load
 ```
 
-> **¿No sabes el nombre de tu emulador?** Ejecuta `emulator -list-avds` para ver los disponibles.
+> **¿No sabes el nombre de tu emulador?** Ejecuta `emulator -list-avds` para ver los disponibles. Si tu emulador tiene otro nombre, reemplaza `phone_test` con el nombre correcto.
+
+> **Nota:** El flag `-no-snapshot-load` inicia el emulador desde cero sin cargar snapshots, lo que asegura un estado limpio para las pruebas.
 
 **Resultado esperado:** Se abrirá una ventana con un celular Android virtual. Espera a que cargue completamente (aparecerá la pantalla de inicio).
 
@@ -67,6 +69,26 @@ appium --use-plugins=all
 ```
 
 > **Importante:** No cierres esta terminal. Appium debe seguir corriendo.
+
+### Configuración de Capabilities de Appium
+
+El proyecto utiliza las siguientes capabilities de Appium para la conexión con el dispositivo Android:
+
+```json
+{
+  "platformName": "Android",
+  "appium:automationName": "UiAutomator2",
+  "appium:deviceName": "emulator-5554",
+  "appium:udid": "emulator-5554",
+  "appium:autoGrantPermissions": true,
+  "appium:ignoreHiddenApiPolicyError": true,
+  "appium:disableWindowAnimation": true,
+  "appium:skipDeviceInitialization": false,
+  "appium:disableSuppressAccessibilityService": true
+}
+```
+
+> **Nota:** El `udid` y `deviceName` deben coincidir con el ID del dispositivo que aparece al ejecutar `adb devices`. Si tu dispositivo tiene otro ID (por ejemplo, `emulator-5556`), actualiza estos valores en la configuración del proyecto.
 
 ## Paso 5: Ejecutar la Prueba
 

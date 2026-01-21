@@ -766,6 +766,21 @@ class QAIV2TestRunner:
                     return (False, "Error: element_id missing")
                 result = self.agent_tools.touch_element_by_id(element_id)
 
+            elif tool_name == "touch_out_element":
+                element_id = tool_args.get("element_id")
+                direction = tool_args.get("direction")
+                distance_percent = tool_args.get("distance_percent")
+                if element_id is None:
+                    logger.error(f"TEST_RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
+                    return (False, "Error: element_id missing")
+                if direction is None:
+                    logger.error(f"TEST_RUNNER ERROR: 'direction' no presente en arguments: {tool_args}")
+                    return (False, "Error: direction missing")
+                if distance_percent is None:
+                    logger.error(f"TEST_RUNNER ERROR: 'distance_percent' no presente in arguments: {tool_args}")
+                    return (False, "Error: distance_percent missing")
+                result = self.agent_tools.touch_out_element(element_id, direction, distance_percent)
+
             elif tool_name == "fill_field_by_id":
                 element_id = tool_args.get("element_id")
                 value = tool_args.get("value")

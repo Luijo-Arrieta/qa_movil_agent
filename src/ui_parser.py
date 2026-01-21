@@ -103,6 +103,9 @@ class UIParser:
             "interactable_found": 0,
             "filtered_out": 0,
         }
+        # Tamaño de pantalla (se obtiene del XML root)
+        self.screen_width = 0
+        self.screen_height = 0
 
     def _get_current_package(self) -> Optional[str]:
         """
@@ -219,11 +222,11 @@ class UIParser:
                     stable_count += 1
                     if stable_count >= stability_threshold:
                         elapsed = time.time() - start_time
-                        logger.debug(f"UIPARSER: ✓ UI estable después de {elapsed:.2f}s ({check_count} checks)")
+                        # logger.debug(f"UIPARSER: ✓ UI estable después de {elapsed:.2f}s ({check_count} checks)")
                         return True, elapsed, f"UI estable después de {check_count} checks"
                 else:
                     stable_count = 0
-                    logger.debug(f"UIPARSER: 🔄 Check #{check_count}: UI cambió, reiniciando contador")
+                    # logger.debug(f"UIPARSER: 🔄 Check #{check_count}: UI cambió, reiniciando contador")
                 
                 previous_hash = current_hash
                 time.sleep(interval)
@@ -255,21 +258,21 @@ class UIParser:
             MiddlewareResult si la app no está permitida o hay error de scope
         """
         logger.debug("=" * 70)
-        logger.debug("UIPARSER: get_ui() - Obteniendo UI actual")
+        logger.info("UIPARSER: get_ui() - Obteniendo UI actual")
         logger.debug("=" * 70)
         
         # FASE 1: Esperar estabilidad si está habilitado
         if wait_stable and self.driver:
-            logger.debug("UIPARSER: Esperando estabilidad de UI...")
+            # logger.debug("UIPARSER: Esperando estabilidad de UI...")
             is_stable, wait_time, reason = self._wait_for_ui_stable(timeout=timeout)
             if not is_stable:
                 logger.warning(f"UIPARSER: UI no estabilizó completamente ({reason}), continuando de todos modos")
         
         # FASE 2: Obtener XML y current_package
-        logger.debug("UIPARSER: Obteniendo XML y current_package...")
+        # logger.debug("UIPARSER: Obteniendo XML y current_package...")
         xml_source = self._get_screen_tree()
         current_package = self._get_current_package()
-        logger.debug(f"UIPARSER: ✓ XML obtenido ({len(xml_source)} caracteres), current_package = {current_package}")
+        # logger.debug(f"UIPARSER: ✓ XML obtenido ({len(xml_source)} caracteres), current_package = {current_package}")
         
         # FASE 3: Ejecutar parse_screen (que incluye middleware)
         return self.parse_screen(xml_source=xml_source, current_package=current_package)
@@ -326,9 +329,9 @@ class UIParser:
             - password, scrollable: Solo si son "true"
             - hint: Placeholder del input
         """
-        logger.debug("=" * 70)
-        logger.debug("UIPARSER: Iniciando parseo de pantalla")
-        logger.debug("=" * 70)
+        # logger.debug("=" * 70)
+        # logger.debug("UIPARSER: Iniciando parseo de pantalla")
+        # logger.debug("=" * 70)
         
         # Obtener XML si no se proporciona
         if xml_source is None:
@@ -398,6 +401,21 @@ class UIParser:
                 logger.error(f"UIPARSER ERROR: Error en línea {line}, columna {col}")
             raise ValueError(f"Error parsing XML: {e}")
 
+        # Extraer tamaño de pantalla del root (atributos width y height del hierarchy)
+        try:
+            self.screen_width = int(root.get("width", "0"))
+            self.screen_height = int(root.get("height", "0"))
+            if self.screen_width > 0 and self.screen_height > 0:
+                logger.debug(f"UIPARSER: Tamaño de pantalla detectado: {self.screen_width}x{self.screen_height}")
+            else:
+                logger.warning("UIPARSER: No se pudo obtener tamaño de pantalla del XML, usando valores por defecto")
+                self.screen_width = 1080  # Valores por defecto comunes
+                self.screen_height = 2400
+        except (ValueError, TypeError) as e:
+            logger.warning(f"UIPARSER: Error extrayendo tamaño de pantalla: {e}, usando valores por defecto")
+            self.screen_width = 1080
+            self.screen_height = 2400
+
         # Reset para nuevo parseo
         self.element_map = {}
         self.element_info_map = {}
@@ -464,10 +482,17 @@ class UIParser:
         Valida si un elemento debe incluirse en la lista de elementos interactuables.
 
         Reglas de inclusión:
-        - focusable="true" - REQUERIDO
+        - focusable="true" - REQUERIDO (excepto casos especiales)
         - clickable="true" (con info útil: text, content-desc o resource-id)
         - Clase contiene "EditText" (inputs) - se incluyen siempre
-        - Clase contiene "ImageView" (botones de imagen) - se incluyen siempre
+        - ImageView clickable - se incluyen siempre (botones de imagen)
+        - ImageView no clickable pero con información (content-desc/text) - NUEVO
+        - Elementos informativos no clickables con texto significativo - NUEVO
+
+        Reglas de EXCLUSIÓN (NUEVAS):
+        - Contenedores grandes (>80% de pantalla) - excluidos
+        - Contenedores con hijos interactuables (EditText, ImageView clickable) - excluidos
+        - Elementos con content-desc que son solo máscaras (**********, etc.) - excluidos
 
         Args:
             element: Elemento XML a validar
@@ -482,26 +507,140 @@ class UIParser:
         text = element.get("text", "").strip()
         content_desc = element.get("content-desc", "").strip()
         resource_id = element.get("resource-id", "").strip()
+        bounds = element.get("bounds", "").strip()
 
         # focusable es REQUERIDO para cualquier elemento interactuable
         if not focusable:
             return False
 
-        # Verificar tipos especiales que siempre se incluyen
-        is_input = "edittext" in class_name or "input" in class_name
-        is_image_button = "imageview" in class_name and clickable
+        # ======================================================================
+        # REGLAS DE EXCLUSIÓN (aplicar ANTES de las reglas de inclusión)
+        # ======================================================================
 
-        # Inputs siempre se incluyen (aunque no tengan info útil)
+        # REGLA 1: Detectar contenedores grandes (>80% de pantalla)
+        # EXCEPCIÓN: No excluir si es clickable Y tiene información útil (content-desc, text, resource-id)
+        # Esto permite incluir botones grandes que cubren toda la pantalla pero son interactuables reales
+        if bounds:
+            width, height = self._parse_bounds_size(bounds)
+            if self.screen_width > 0 and self.screen_height > 0:
+                area_element = width * height
+                area_screen = self.screen_width * self.screen_height
+                coverage = area_element / area_screen if area_screen > 0 else 0
+                
+                # EXCLUSIÓN ABSOLUTA: Elementos que ocupan ≥95% de la pantalla (sin excepciones)
+                # Esta regla debe aplicarse ANTES de cualquier otra verificación
+                if coverage >= 0.95:  # 95% o más (casi pantalla completa)
+                    # logger.debug(
+                    #     f"UIPARSER: Excluyendo elemento que ocupa casi toda la pantalla "
+                    #     f"(cobertura: {coverage:.1%}, content-desc: '{content_desc}', class: {class_name})"
+                    # )
+                    return False
+                
+                # Si cubre más del 80% pero menos del 95%, aplicar lógica existente
+                elif coverage > 0.80:
+                    # Verificar si es un elemento interactuable real (clickable con info útil)
+                    is_real_interactable = clickable and (content_desc or text or resource_id)
+                    
+                    if is_real_interactable:
+                        # Es un botón grande pero real, no excluir
+                        logger.debug(
+                            f"UIPARSER: Manteniendo botón grande interactuable "
+                            f"(cobertura: {coverage:.1%}, content-desc: '{content_desc}', class: {class_name})"
+                        )
+                    else:
+                        # Es un contenedor grande sin información útil, excluir
+                        logger.debug(
+                            f"UIPARSER: Excluyendo contenedor grande "
+                            f"(cobertura: {coverage:.1%}, bounds: {bounds}, class: {class_name})"
+                        )
+                        return False
+
+        # REGLA 2: Detectar contenedores con hijos interactuables
+        if clickable:
+            has_interactable_children = False
+            for child in element:
+                child_class = child.get("class", "").lower()
+                child_clickable = child.get("clickable", "false").lower() == "true"
+                child_focusable = child.get("focusable", "false").lower() == "true"
+                
+                # Si tiene un EditText hijo, es un contenedor (ej: contenedor de password)
+                if "edittext" in child_class and child_focusable:
+                    has_interactable_children = True
+                    logger.debug(
+                        f"UIPARSER: Excluyendo contenedor con EditText hijo "
+                        f"(content-desc: '{content_desc}', class: {class_name})"
+                    )
+                    break
+                # Si tiene un ImageView clickable hijo, es un contenedor (ej: contenedor con icono)
+                if "imageview" in child_class and child_clickable and child_focusable:
+                    has_interactable_children = True
+                    logger.debug(
+                        f"UIPARSER: Excluyendo contenedor con ImageView clickable hijo "
+                        f"(content-desc: '{content_desc}', class: {class_name})"
+                    )
+                    break
+            
+            if has_interactable_children:
+                return False
+
+        # REGLA 3: Excluir elementos con content-desc que son solo máscaras
+        if content_desc and clickable:
+            # Patrones que indican contenedores, no botones reales
+            # Normalizar espacios y caracteres especiales
+            content_desc_normalized = content_desc.strip()
+            mask_patterns = ["**********", "••••••••", "••••••", "****", "••••"]
+            # También detectar patrones repetitivos de asteriscos o puntos
+            if content_desc_normalized in mask_patterns:
+                logger.debug(
+                    f"UIPARSER: Excluyendo contenedor de máscara "
+                    f"(content-desc: '{content_desc}', class: {class_name})"
+                )
+                return False
+            # Detectar patrones repetitivos (solo asteriscos o solo puntos)
+            if len(content_desc_normalized) > 3:
+                if all(c in ['*', '•', '·'] for c in content_desc_normalized):
+                    logger.debug(
+                        f"UIPARSER: Excluyendo contenedor de máscara (patrón repetitivo) "
+                        f"(content-desc: '{content_desc}', class: {class_name})"
+                    )
+                    return False
+
+        # ======================================================================
+        # REGLAS DE INCLUSIÓN (aplicar después de las exclusiones)
+        # ======================================================================
+
+        # 1. INPUTS: Siempre incluidos (aunque no tengan info útil)
+        is_input = "edittext" in class_name or "input" in class_name
         if is_input:
             return True
 
-        # ImageView clickables siempre se incluyen (botones de imagen como show/hide password)
-        if is_image_button:
-            return True
+        # 2. IMAGEVIEW: Incluir si:
+        #    - Es clickable (botón de imagen o icono)
+        #    - O tiene información valiosa (content-desc/text) aunque no sea clickable
+        #      Esto captura elementos como el ImageView del diálogo de éxito
+        if "imageview" in class_name:
+            if clickable:
+                return True  # Botón de imagen o icono clickable
+            elif content_desc or text:
+                # ImageView informativo (como el diálogo de éxito con mensaje)
+                # Verificar que el contenido sea significativo (más de 3 caracteres)
+                meaningful_content = len(content_desc) > 3 or len(text) > 3
+                if meaningful_content:
+                    return True
+            return False
 
-        # Para otros elementos clickables, requieren info útil
+        # 3. ELEMENTOS CLICKABLES: Incluir si tienen info útil
         if clickable:
             if text or content_desc or resource_id:
+                return True
+
+        # 4. ELEMENTOS INFORMATIVOS NO CLICKABLES
+        # Incluir si tienen información valiosa (text o content-desc)
+        # Esto captura textos de diálogos, labels informativos, etc.
+        if text or content_desc:
+            # Verificar que el texto sea significativo (más de 3 caracteres)
+            meaningful_text = len(text) > 3 or len(content_desc) > 3
+            if meaningful_text:
                 return True
 
         return False
@@ -579,11 +718,100 @@ class UIParser:
         if hint:
             attrs.append({"name": "hint", "value": hint})
 
+        # NUEVO: Detectar y agregar tipo de elemento
+        element_type = self._detect_element_type(element)
+        attrs.append({"name": "possible_element_type", "value": element_type})
+
         # Retornar estructura UIElement con id y lista de attrs
         return UIElement(
             id=element_id,
             attrs=attrs
         )
+
+    def _parse_bounds_size(self, bounds: str) -> tuple[int, int]:
+        """
+        Parsea bounds "[x1,y1][x2,y2]" y retorna (width, height).
+        
+        Args:
+            bounds: String con formato "[x1,y1][x2,y2]"
+            
+        Returns:
+            Tupla (width, height) o (0, 0) si no se puede parsear
+        """
+        if not bounds:
+            return (0, 0)
+        
+        try:
+            match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+            if match:
+                x1, y1, x2, y2 = map(int, match.groups())
+                return (x2 - x1, y2 - y1)
+        except Exception as e:
+            logger.debug(f"UIPARSER: Error parseando bounds '{bounds}': {e}")
+        
+        return (0, 0)
+
+    def _detect_element_type(self, element: ET.Element) -> str:
+        """
+        Detecta el tipo de elemento basado en sus características.
+        
+        Tipos posibles:
+        - "button": Elemento clickable con acción (View, Button, etc.)
+        - "input": EditText (campo de entrada)
+        - "text": Elemento informativo no clickable (TextView, View con texto)
+        - "image_button": ImageView clickable grande (botón de imagen)
+        - "image_info": ImageView no clickable pero con información (content-desc/text)
+        - "icon_button": ImageView clickable pequeño (iconos como ojo de password)
+        - "link": Elemento clickable con texto que parece enlace
+        
+        Args:
+            element: Elemento XML a analizar
+            
+        Returns:
+            String con el tipo detectado
+        """
+        class_name = element.get("class", "").lower()
+        clickable = element.get("clickable", "false").lower() == "true"
+        focusable = element.get("focusable", "false").lower() == "true"
+        text = element.get("text", "").strip()
+        content_desc = element.get("content-desc", "").strip()
+        bounds = element.get("bounds", "").strip()
+        
+        # Calcular tamaño del elemento desde bounds
+        width, height = self._parse_bounds_size(bounds)
+        is_small = width < 200 and height < 200  # Iconos pequeños (< 200x200)
+        
+        # 1. INPUT: EditText siempre es input
+        if "edittext" in class_name:
+            return "input"
+        
+        # 2. IMAGEVIEW: Diferentes tipos según clickable y tamaño
+        if "imageview" in class_name:
+            if clickable:
+                return "icon_button" if is_small else "image_button"
+            elif focusable and (content_desc or text):
+                # ImageView con información (como el diálogo de éxito)
+                return "image_info"
+            else:
+                return "image_info"  # Por defecto para ImageView
+        
+        # 3. BUTTON: Elemento clickable con acción
+        if clickable:
+            # Si tiene texto descriptivo, puede ser link o button
+            if text or content_desc:
+                # Links suelen tener texto corto y específico
+                link_keywords = ["crear", "olvidaste", "iniciar", "enviar", "cerrar", "salir"]
+                text_lower = (text + " " + content_desc).lower()
+                if any(keyword in text_lower for keyword in link_keywords):
+                    return "link"
+            return "button"
+        
+        # 4. TEXT: Elemento informativo no clickable
+        if focusable and (text or content_desc):
+            return "text"
+        
+        # Por defecto
+        return "unknown"
 
     def _generate_xpath(
         self, element: ET.Element, parent_path: str, parent_element: Optional[ET.Element] = None

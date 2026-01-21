@@ -4,6 +4,7 @@ Configuración del proyecto - Carga variables de entorno y configuración.
 
 import os
 import logging
+from datetime import datetime
 from typing import Optional, Tuple, List
 from dotenv import load_dotenv
 
@@ -79,6 +80,20 @@ class Config:
     # Credenciales de prueba para tests
     TEST_USER_EMAIL: str = os.getenv("TEST_USER_EMAIL", "cliente@demo.com")
     TEST_USER_PASSWORD: str = os.getenv("TEST_USER_PASSWORD", "123456")
+    
+    @classmethod
+    def get_dynamic_test_password(cls, prefix: str = "NuevaClave") -> str:
+        """
+        Genera una contraseña dinámica simple usando timestamp.
+        
+        Args:
+            prefix: Prefijo para la contraseña (default: "NuevaClave")
+            
+        Returns:
+            Contraseña dinámica con formato: {prefix}{timestamp}
+        """
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        return f"{prefix}{timestamp}"
 
     # Modo de proyecto / comportamiento de app principal
     # Si ANDROID_APP_PACKAGE está definido, se considera un proyecto "single-app"
@@ -87,7 +102,31 @@ class Config:
     
     # QAI Version
     QAI_VERSION: str = os.getenv("QAI_VERSION", "v1")  # "v1" o "v2"
-    
+
+    # =========================================================================
+    # AI API Configuration (timeout, retries)
+    # =========================================================================
+    # Timeout en segundos para llamadas a la API de IA
+    AI_API_TIMEOUT: float = float(os.getenv("AI_API_TIMEOUT", "120.0"))
+    # Número de reintentos (1 = intento inicial + 1 reintento = 2 oportunidades)
+    AI_API_MAX_RETRIES: int = int(os.getenv("AI_API_MAX_RETRIES", "1"))
+    # Segundos de espera entre reintentos
+    AI_API_RETRY_DELAY: float = float(os.getenv("AI_API_RETRY_DELAY", "3.0"))
+
+    # =========================================================================
+    # AI Provider Fallback Configuration
+    # =========================================================================
+    # Habilita fallback automático a otro proveedor si el primario falla
+    AI_FALLBACK_ENABLED: bool = os.getenv("AI_FALLBACK_ENABLED", "false").lower() == "true"
+    # Lista ordenada de proveedores de fallback (separados por coma)
+    # Ejemplo: "anthropic,openai" - si el primario falla, intenta anthropic, luego openai
+    _AI_FALLBACK_PROVIDERS_STR: Optional[str] = os.getenv("AI_FALLBACK_PROVIDERS")
+    AI_FALLBACK_PROVIDERS: List[str] = (
+        [p.strip() for p in _AI_FALLBACK_PROVIDERS_STR.split(",") if p.strip()]
+        if _AI_FALLBACK_PROVIDERS_STR
+        else []
+    )
+
     # Apps permitidas (scope del agente)
     # Lista de packages de apps que el agente puede ver e interactuar
     # Separadas por comas, sin espacios (ej: "com.app1,com.app2")
@@ -158,6 +197,7 @@ class Config:
         logger.info(f"    MAX_RETRIES_PER_STEP: {cls.MAX_RETRIES_PER_STEP} reintentos")
         logger.info(f"    MAX_ACTIONS_PER_STEP: {cls.MAX_ACTIONS_PER_STEP} acciones")
         logger.info(f"    MAX_REPEATED_ACTION_ATTEMPTS: {cls.MAX_REPEATED_ACTION_ATTEMPTS} intentos")
+        
         logger.info("=" * 70)
 
     @classmethod
