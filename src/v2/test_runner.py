@@ -56,9 +56,7 @@ class QAIV2TestRunner:
             driver: Instancia del driver de Appium
             objective: Objetivo general del test (opcional)
         """
-        logger.info("=" * 80)
-        logger.info("TEST_RUNNER: Inicializando QAIV2TestRunner (Conversational)")
-        logger.info("=" * 80)
+        logger.info("  RUNNER: Inicializando QAIV2TestRunner (V2)")
         
         self._start_time = datetime.now()
         
@@ -76,19 +74,9 @@ class QAIV2TestRunner:
         validate_driver(driver)
         
         # Inicializar componentes
-        logger.info("TEST_RUNNER: Inicializando componentes...")
-        
-        logger.debug("TEST_RUNNER: Creando UIParser...")
         self.ui_parser = UIParser(driver=self.driver)
-        logger.debug("TEST_RUNNER: ✓ UIParser creado")
-        
-        logger.debug("TEST_RUNNER: Creando AppiumSkills...")
         self.agent_tools = AppiumSkills(driver, self.ui_parser)
-        logger.debug("TEST_RUNNER: ✓ AppiumSkills creado")
-        
-        logger.debug("TEST_RUNNER: Creando QAIV2Orchestrator...")
         self.ai_orchestrator = QAIV2Orchestrator()
-        logger.debug("TEST_RUNNER: ✓ QAIV2Orchestrator creado")
         
         # Contexto global del agente para el paso actual
         self.current_context: Optional[StepContext] = None
@@ -106,7 +94,7 @@ class QAIV2TestRunner:
             "start_time": self._start_time.isoformat(),
         }
         
-        logger.info(f"TEST_RUNNER: ✓ Inicialización completa")
+        logger.info(f"  RUNNER: ✓ Inicialización completa")
 
     def run_test_plan(self, test_plan: List[str]) -> bool:
         """
@@ -118,19 +106,16 @@ class QAIV2TestRunner:
         Returns:
             True si todos los pasos se completaron exitosamente, False en caso contrario
         """
-        logger.info("")
         logger.info("█" * 80)
-        logger.info("█  TEST_RUNNER: INICIANDO EJECUCIÓN DE PLAN DE PRUEBA")
+        logger.info("█  RUNNER: INICIANDO EJECUCIÓN DE PLAN")
         logger.info("█" * 80)
-        logger.info("")
         
         plan_start_time = datetime.now()
         self._execution_stats["total_steps"] = len(test_plan)
         
-        logger.info(f"TEST_RUNNER: Total de pasos en el plan: {len(test_plan)}")
-        logger.info(f"TEST_RUNNER: Max reintentos por paso: {self.max_retries}")
+        logger.info(f"  Plan: {len(test_plan)} pasos | Max reintentos: {self.max_retries}")
         if self.objective:
-            logger.info(f"TEST_RUNNER: Objetivo general: '{self.objective}'")
+            logger.info(f"  Objetivo: '{self.objective}'")
         
         # Listar todos los pasos
         logger.info("TEST_RUNNER: Plan de prueba:")
@@ -138,22 +123,26 @@ class QAIV2TestRunner:
             logger.info(f"  {idx}. {step}")
         logger.info("")
 
-        for step_index, step in enumerate(test_plan, 1):
+        step_index = 0
+        while step_index < len(test_plan):
+            step = test_plan[step_index]
+            display_index = step_index + 1
             step_start_time = datetime.now()
             
             logger.info("")
             logger.info("═" * 80)
-            logger.info(f"▶ PASO {step_index}/{len(test_plan)}: {step}")
+            logger.info(f"▶ PASO {display_index}/{len(test_plan)}: {step}")
             logger.info("═" * 80)
-            logger.info(f"TEST_RUNNER: Iniciando paso {step_index} a las {step_start_time.strftime('%H:%M:%S.%f')[:-3]}")
+            logger.info(f"TEST_RUNNER: Iniciando paso {display_index} a las {step_start_time.strftime('%H:%M:%S.%f')[:-3]}")
 
             # Calcular previous_step / next_step para el contexto del plan
-            previous_step = test_plan[step_index - 2] if step_index > 1 else None
-            next_step = test_plan[step_index] if step_index < len(test_plan) else None
+            previous_step = test_plan[step_index - 1] if step_index > 0 else None
+            next_step = test_plan[step_index + 1] if step_index < len(test_plan) - 1 else None
 
-            success = self._execute_step(
+            # Ejecutar el paso
+            result = self._execute_step(
                 step=step,
-                step_index=step_index,
+                step_index=display_index,
                 total_steps=len(test_plan),
                 previous_step=previous_step,
                 next_step=next_step,
@@ -161,35 +150,45 @@ class QAIV2TestRunner:
             
             step_elapsed = (datetime.now() - step_start_time).total_seconds()
 
-            if not success:
+            if not result.get("success"):
                 self._execution_stats["failed_steps"] += 1
                 logger.error("")
                 logger.error("╔" + "═" * 78 + "╗")
-                logger.error(f"║ ❌ FALLO EN PASO {step_index}: {step[:60]}")
+                logger.error(f"║ ❌ FALLO EN PASO {display_index}: {step[:60]}")
                 logger.error("╚" + "═" * 78 + "╝")
-                logger.error(f"TEST_RUNNER: Tiempo transcurrido en paso fallido: {step_elapsed:.2f}s")
+                logger.error(f"  RUNNER: Tiempo en paso fallido: {step_elapsed:.2f}s")
                 
-                # DEBUG: Dump del estado del UIParser para diagnóstico
-                logger.error("TEST_RUNNER: Dumping estado del UIParser para diagnóstico...")
-                self.ui_parser.debug_dump_element_map(log_output=True)
-                
-                # Imprimir resumen de estadísticas
+                # Resumen de estadísticas
                 self._print_execution_summary(plan_start_time)
                 return False
 
-            self._execution_stats["completed_steps"] += 1
+            # Determinar cuántos pasos avanzar (cascada)
+            steps_to_advance = result.get("steps_advanced", 1)
+            self._execution_stats["completed_steps"] += steps_to_advance
+            
+            if steps_to_advance > 1:
+                logger.info("")
+                logger.info(f"🚀 CASCADA: Se han completado {steps_to_advance} pasos de golpe")
+                for i in range(steps_to_advance):
+                    completed_step_desc = test_plan[step_index + i]
+                    logger.info(f"✅ PASO {step_index + i + 1} COMPLETADO: {completed_step_desc}")
+            else:
+                logger.info("")
+                logger.info(f"✅ PASO {display_index} COMPLETADO en {step_elapsed:.2f}s")
+            
             logger.info("")
-            logger.info(f"✅ PASO {step_index} COMPLETADO en {step_elapsed:.2f}s")
-            logger.info("")
+            
+            # Avanzar el índice
+            step_index += steps_to_advance
 
         # Plan completado exitosamente
         plan_elapsed = (datetime.now() - plan_start_time).total_seconds()
         
         logger.info("")
         logger.info("█" * 80)
-        logger.info("█  ✅ PLAN DE PRUEBA COMPLETADO EXITOSAMENTE")
+        logger.info("█  ✅ PLAN DE PRUEBA COMPLETADO")
         logger.info("█" * 80)
-        logger.info(f"TEST_RUNNER: Tiempo total de ejecución: {plan_elapsed:.2f}s")
+        logger.info(f"  RUNNER: Tiempo total: {plan_elapsed:.2f}s")
         
         # Capturar screenshot final automáticamente para Allure
         self._capture_final_screenshot()
@@ -217,15 +216,15 @@ class QAIV2TestRunner:
         # Stats de componentes
         if hasattr(self.ai_orchestrator, 'get_stats'):
             ai_stats = self.ai_orchestrator.get_stats()
-            logger.debug(f"TEST_RUNNER: AI Orchestrator stats: {ai_stats}")
+            logger.debug(f"  RUNNER: AI Orchestrator stats: {ai_stats}")
         
         if hasattr(self.agent_tools, 'get_action_stats'):
             action_stats = self.agent_tools.get_action_stats()
-            logger.debug(f"TEST_RUNNER: Agent Tools stats: {action_stats}")
+            logger.debug(f"  RUNNER: Agent Tools stats: {action_stats}")
         
-        # DEBUG: Dump del mapeo de elementos (solo en nivel DEBUG)
-        logger.debug("TEST_RUNNER: UIParser element map dump:")
-        self.ui_parser.debug_dump_element_map(log_output=False)  # Solo retorna, no duplica logs
+        # Dump del mapeo de elementos (solo en nivel DEBUG)
+        logger.debug("  RUNNER: Dumping element map...")
+        self.ui_parser.debug_dump_element_map(log_output=False)
 
     def _capture_final_screenshot(self) -> None:
         """
@@ -233,20 +232,20 @@ class QAIV2TestRunner:
         Se ejecuta después de completar exitosamente todos los pasos del plan.
         """
         if not ALLURE_AVAILABLE:
-            logger.debug("TEST_RUNNER: Allure no disponible, omitiendo screenshot final")
+            logger.debug("  RUNNER: Allure no disponible, omitiendo screenshot final")
             return
         
         try:
-            logger.info("TEST_RUNNER: Capturando screenshot final para Allure...")
+            logger.info("  RUNNER: Capturando screenshot final para Allure...")
             screenshot = self.driver.get_screenshot_as_png()
             allure.attach(
                 screenshot,
                 name="Final - Estado después de completar todos los pasos",
                 attachment_type=allure.attachment_type.PNG
             )
-            logger.info("TEST_RUNNER: ✓ Screenshot final adjuntado a Allure")
+            logger.info("  RUNNER: ✓ Screenshot final adjuntado a Allure")
         except Exception as e:
-            logger.warning(f"TEST_RUNNER: No se pudo capturar screenshot final: {e}")
+            logger.warning(f"  RUNNER: No se pudo capturar screenshot final: {e}")
 
     def _execute_step(
         self,
@@ -255,7 +254,7 @@ class QAIV2TestRunner:
         total_steps: int,
         previous_step: Optional[str],
         next_step: Optional[str],
-    ) -> bool:
+    ) -> Dict[str, Any]:
         """
         Ejecuta un paso individual con sistema de reintentos y loop agéntico.
 
@@ -272,7 +271,7 @@ class QAIV2TestRunner:
             next_step: Próximo paso (o None si es el último)
 
         Returns:
-            True si el paso se completó exitosamente, False en caso contrario
+            Dict con {"success": bool, "steps_advanced": int}
         """
         # Límites de acciones (desde Config para permitir personalización via .env)
         max_actions_per_step = Config.MAX_ACTIONS_PER_STEP
@@ -280,14 +279,11 @@ class QAIV2TestRunner:
         actions_executed = 0
         
         # Tracking de acciones repetidas (inicializar ANTES del loop de reintentos)
+        last_tool_call = {}
+        last_result_message = ""
         last_action_signature = None
         repeated_action_count = 0
         
-        logger.debug(f"TEST_RUNNER: Configuración del paso:")
-        logger.debug(f"  - Max acciones por paso: {max_actions_per_step}")
-        logger.debug(f"  - Max intentos misma acción: {max_repeated_action_attempts}")
-        logger.debug(f"  - Max reintentos: {self.max_retries}")
-
         for attempt in range(1, self.max_retries + 1):
             logger.info("")
             logger.info(f"┌─ INTENTO {attempt}/{self.max_retries} para paso {step_index} ─┐")
@@ -301,6 +297,11 @@ class QAIV2TestRunner:
                     loop_iteration += 1
                     logger.info("")
                     logger.info(f"  ┌─ Loop agéntico iteración {loop_iteration} ─┐")
+                    
+                    # Resetear conteo de acciones repetidas en cada nueva iteración del loop agéntico
+                    # Esto permite que si la UI cambió, la IA pueda reintentar acciones similares
+                    repeated_action_count = 0
+                    last_action_signature = None
                     
                     # ══════════════════════════════════════════════════════════════
                     # FASE: Obtener UI actual (UIParser maneja todo internamente)
@@ -467,7 +468,7 @@ class QAIV2TestRunner:
                                     logger.error("  ╚" + "═" * 70 + "╝")
                                     return False
                             else:
-                                # Nueva acción diferente, resetear contador
+                                # Nueva acción diferente, resetear contador y actualizar firma
                                 repeated_action_count = 1
                                 last_action_signature = current_action_signature
                             
@@ -557,6 +558,8 @@ class QAIV2TestRunner:
                             if completion_decision.get("step_completed"):
                                 logger.info(f"  │ ✓ IA indica que el paso está completo")
                                 logger.info(f"  │   Razón: {completion_decision.get('reason', 'N/A')}")
+                                
+                                # GUARD CLAUSE: Registrar éxito del paso actual
                                 action_summary = {
                                     "index": len(self.action_history) + 1,
                                     "action": f"Paso completado: {step}",
@@ -565,10 +568,47 @@ class QAIV2TestRunner:
                                 }
                                 self.action_history.append(action_summary)
                                 
+                                # CASCADE CHECK: Verificamos el siguiente paso (N+1)
+                                steps_advanced = 1
+                                # next_step se pasó como argumento a _execute_step
+                                if next_step:
+                                    logger.info(f"  │ 🔍 CASCADE CHECK: ¿El siguiente paso ya está listo? ('{next_step[:40]}...')")
+                                    try:
+                                        # Reutilizamos la misma UI para el check del siguiente paso
+                                        ui_for_cascading = current_ui_elements or (parse_result if isinstance(parse_result, list) else [])
+                                        
+                                        next_decision = self.ai_orchestrator.decide_step_completion(
+                                            context=step_context,
+                                            last_action=last_tool_call,
+                                            last_result=last_result_message,
+                                            current_ui=ui_for_cascading,
+                                            override_step_description=next_step
+                                        )
+                                        
+                                        if next_decision.get("step_completed"):
+                                            logger.info(f"  │ 🚀 CASCADE SUCCESS: ¡El paso siguiente TAMBIÉN está completo!")
+                                            logger.info(f"  │   Razón: {next_decision.get('reason', 'N/A')}")
+                                            steps_advanced = 2
+                                            
+                                            # Registrar el paso auto-completado
+                                            next_action_summary = {
+                                                "index": len(self.action_history) + 1,
+                                                "action": f"Paso autocompletado (cascada): {next_step}",
+                                                "result": next_decision.get('reason', 'Auto-completed via cascading check'),
+                                                "success": True
+                                            }
+                                            self.action_history.append(next_action_summary)
+                                    except Exception as e:
+                                        logger.warning(f"  │ ⚠️ Error en Cascade Check: {e}")
+
                                 attempt_elapsed = (datetime.now() - attempt_start).total_seconds()
                                 logger.info(f"  └─ Fin loop (paso completado en {attempt_elapsed:.2f}s) ─┘")
                                 logger.info(f"└─ FIN INTENTO {attempt} - ÉXITO ─┘")
-                                return True
+                                
+                                return {
+                                    "success": True,
+                                    "steps_advanced": steps_advanced
+                                }
                             else:
                                 logger.info(f"  │ IA indica que el paso necesita más acciones")
                                 logger.info(f"  │   Razón: {completion_decision.get('reason', 'N/A')}")
@@ -591,17 +631,53 @@ class QAIV2TestRunner:
                             "success": True
                         }
                         self.action_history.append(action_summary)
+
+                        # CASCADE CHECK: Verificamos el siguiente paso (N+1)
+                        steps_advanced = 1
+                        if next_step:
+                            logger.info(f"  │ 🔍 CASCADE CHECK: ¿El siguiente paso ya está listo? ('{next_step[:40]}...')")
+                            try:
+                                # Reutilizamos la misma UI para el check del siguiente paso
+                                # current_ui_elements contiene la UI actual parseada
+                                ui_for_cascading = current_ui_elements or []
+                                
+                                next_decision = self.ai_orchestrator.decide_step_completion(
+                                    context=step_context,
+                                    last_action={}, # No hubo acción en esta iteración
+                                    last_result="Paso ya completado según análisis inicial",
+                                    current_ui=ui_for_cascading,
+                                    override_step_description=next_step
+                                )
+                                
+                                if next_decision.get("step_completed"):
+                                    logger.info(f"  │ 🚀 CASCADE SUCCESS: ¡El paso siguiente TAMBIÉN está completo!")
+                                    logger.info(f"  │   Razón: {next_decision.get('reason', 'N/A')}")
+                                    steps_advanced = 2
+                                    
+                                    # Registrar el paso auto-completado
+                                    next_action_summary = {
+                                        "index": len(self.action_history) + 1,
+                                        "action": f"Paso autocompletado (cascada): {next_step}",
+                                        "result": next_decision.get('reason', 'Auto-completed via cascading check'),
+                                        "success": True
+                                    }
+                                    self.action_history.append(next_action_summary)
+                            except Exception as e:
+                                logger.warning(f"  │ ⚠️ Error en Cascade Check: {e}")
                         
                         attempt_elapsed = (datetime.now() - attempt_start).total_seconds()
                         logger.info(f"  └─ Fin loop (paso completado en {attempt_elapsed:.2f}s) ─┘")
                         logger.info(f"└─ FIN INTENTO {attempt} - ÉXITO ─┘")
-                        return True
+                        return {
+                            "success": True,
+                            "steps_advanced": steps_advanced
+                        }
 
                 # Si llegamos aquí, se alcanzó el límite de acciones
                 if actions_executed >= max_actions_per_step:
                     logger.warning(f"TEST_RUNNER WARNING: Se alcanzó el límite de {max_actions_per_step} acciones por paso")
                     logger.warning(f"TEST_RUNNER: Esto puede indicar un loop infinito o paso mal definido")
-                    return False
+                    return {"success": False, "steps_advanced": 0}
 
                 # Acción falló, reintentar
                 logger.warning(f"⚠️ Intento {attempt} falló, esperando 2s antes de reintentar...")
@@ -621,7 +697,7 @@ class QAIV2TestRunner:
                     logger.error(f"TEST_RUNNER ERROR: Error NO recuperable ({error_type}) - no se reintentará")
                     logger.error(f"TEST_RUNNER ERROR: Este tipo de error no se puede solucionar con reintentos")
                     logger.error(f"TEST_RUNNER ERROR: Revisa la configuración, estructura de datos o código")
-                    return False
+                    return {"success": False, "steps_advanced": 0}
                 
                 # Error recuperable - reintentar si quedan intentos
                 if attempt < self.max_retries:
@@ -631,10 +707,10 @@ class QAIV2TestRunner:
                     continue
                 else:
                     logger.error(f"TEST_RUNNER: Se agotaron los {self.max_retries} reintentos para error recuperable")
-                    return False
+                    return {"success": False, "steps_advanced": 0}
 
         logger.error(f"TEST_RUNNER: Se agotaron todos los reintentos para el paso {step_index}")
-        return False
+        return {"success": False, "steps_advanced": 0}
 
     def _check_if_action_completes_step(self, action_name: str, action_args: dict, step: str) -> bool:
         """
@@ -778,7 +854,7 @@ class QAIV2TestRunner:
             if tool_name == "touch_element_by_id":
                 element_id = tool_args.get("element_id")
                 if element_id is None:
-                    logger.error(f"TEST_RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
                     return (False, "Error: element_id missing")
                 result = self.agent_tools.touch_element_by_id(element_id)
 
@@ -787,13 +863,13 @@ class QAIV2TestRunner:
                 direction = tool_args.get("direction")
                 distance_percent = tool_args.get("distance_percent")
                 if element_id is None:
-                    logger.error(f"TEST_RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
                     return (False, "Error: element_id missing")
                 if direction is None:
-                    logger.error(f"TEST_RUNNER ERROR: 'direction' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'direction' no presente en arguments: {tool_args}")
                     return (False, "Error: direction missing")
                 if distance_percent is None:
-                    logger.error(f"TEST_RUNNER ERROR: 'distance_percent' no presente in arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'distance_percent' no presente in arguments: {tool_args}")
                     return (False, "Error: distance_percent missing")
                 result = self.agent_tools.touch_out_element(element_id, direction, distance_percent)
 
@@ -801,10 +877,10 @@ class QAIV2TestRunner:
                 element_id = tool_args.get("element_id")
                 value = tool_args.get("value")
                 if element_id is None:
-                    logger.error(f"TEST_RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
                     return (False, "Error: element_id missing")
                 if value is None:
-                    logger.error(f"TEST_RUNNER ERROR: 'value' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'value' no presente en arguments: {tool_args}")
                     return (False, "Error: value missing")
                 result = self.agent_tools.fill_field_by_id(element_id, value)
 
@@ -818,7 +894,7 @@ class QAIV2TestRunner:
                 scroll_count = tool_args.get("scroll_count", 1)
                 item_multiplier = tool_args.get("item_multiplier", 1)
                 if element_id is None:
-                    logger.error(f"TEST_RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
                     return (False, "Error: element_id missing")
                 result = self.agent_tools.scroll_in_element(element_id, direction, scroll_count, item_multiplier)
 
@@ -828,7 +904,7 @@ class QAIV2TestRunner:
             elif tool_name == "assert_screen_contains":
                 text = tool_args.get("text")
                 if text is None:
-                    logger.error(f"TEST_RUNNER ERROR: 'text' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'text' no presente en arguments: {tool_args}")
                     return (False, "Error: text missing")
                 is_present, message = self.agent_tools.assert_screen_contains(text)
                 result = message
@@ -843,7 +919,7 @@ class QAIV2TestRunner:
             elif tool_name == "activate_app":
                 app_package = tool_args.get("app_package")
                 if not app_package:
-                    logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
                     return (False, "Error: app_package missing")
                 result = self.agent_tools.activate_app(app_package)
                 
@@ -866,21 +942,21 @@ class QAIV2TestRunner:
             elif tool_name == "terminate_app":
                 app_package = tool_args.get("app_package")
                 if not app_package:
-                    logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
                     return (False, "Error: app_package missing")
                 result = self.agent_tools.terminate_app(app_package)
 
             elif tool_name == "switch_to_app":
                 app_package = tool_args.get("app_package")
                 if not app_package:
-                    logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
                     return (False, "Error: app_package missing")
                 result = self.agent_tools.switch_to_app(app_package)
 
             elif tool_name == "switch_to_app_keep_background":
                 app_package = tool_args.get("app_package")
                 if not app_package:
-                    logger.error(f"TEST_RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'app_package' no presente en arguments: {tool_args}")
                     return (False, "Error: app_package missing")
                 result = self.agent_tools.switch_to_app_keep_background(app_package)
 
@@ -890,13 +966,13 @@ class QAIV2TestRunner:
             elif tool_name == "get_confirmation_code":
                 email = tool_args.get("email")
                 if not email:
-                    logger.error(f"TEST_RUNNER ERROR: 'email' no presente en arguments: {tool_args}")
+                    logger.error(f"  RUNNER ERROR: 'email' no presente en arguments: {tool_args}")
                     return (False, "Error: email missing")
                 result = self.agent_tools.get_confirmation_code(email)
 
             else:
-                logger.error(f"TEST_RUNNER ERROR: Herramienta desconocida: '{tool_name}'")
-                logger.error(f"TEST_RUNNER ERROR: Herramientas válidas: touch_element_by_id, fill_field_by_id, scroll_screen, scroll_in_element, go_back, assert_screen_contains, activate_app, terminate_app, switch_to_app, switch_to_app_keep_background, get_confirmation_code")
+                logger.error(f"  RUNNER ERROR: Herramienta desconocida: '{tool_name}'")
+                logger.error(f"  RUNNER ERROR: Herramientas válidas: touch_element_by_id, fill_field_by_id, scroll_screen, scroll_in_element, go_back, assert_screen_contains, activate_app, terminate_app, switch_to_app, switch_to_app_keep_background, get_confirmation_code")
                 return (False, f"Error: Unknown tool '{tool_name}'")
 
             elapsed_ms = int((time.time() - start_time) * 1000)

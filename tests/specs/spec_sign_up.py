@@ -69,7 +69,7 @@ class TestSignUpSpec:
             "Tocar el enlace o botón para crear una cuenta nueva",
 
             # Step 2-3: Fill registration form (AC-003.1 & AC-003.3)
-            "Tocar el campo de entrada de fecha de nacimiento (el input EditText, NO el label) para abrir el selector de fecha",
+            "Tocar el campo de entrada de fecha de nacimiento para abrir el selector de fecha",
             "En el selector de fecha, cambiar el año hasta que sea 2006 o menor usando touch y scroll según sea necesario",
             "Seleccionar el día 1 y mes enero en el selector de fecha",
             "Tocar el botón de confirmar/aceptar la fecha en el selector (debe estar habilitado si los pasos anteriores fueron exitosos)",
