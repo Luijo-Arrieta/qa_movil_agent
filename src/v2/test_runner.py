@@ -143,7 +143,20 @@ class QAIV2TestRunner:
                 return s if isinstance(s, str) else f"[HumanAction] {s.__name__ if hasattr(s, '__name__') else 'lambda'}"
 
             # Calcular previous_step / next_step para el contexto del plan
-            previous_step_desc = _get_desc(test_plan[step_index - 1]) if step_index > 0 else None
+            # Para previous_step, si es HumanAction buscar en el historial el detalle de qué se ejecutó
+            if step_index > 0:
+                prev_step = test_plan[step_index - 1]
+                previous_step_desc = _get_desc(prev_step)
+
+                # Si previous_step era HumanAction, buscar en historial la última acción ejecutada
+                if callable(prev_step) and self.action_history:
+                    last_action = self.action_history[-1]
+                    if last_action.get("is_human_action"):
+                        # Reemplazar la descripción genérica con la del historial
+                        previous_step_desc = last_action.get("action", previous_step_desc)
+            else:
+                previous_step_desc = None
+
             next_step_desc = _get_desc(test_plan[step_index + 1]) if step_index < len(test_plan) - 1 else None
 
             # Ejecutar el paso
@@ -257,36 +270,54 @@ class QAIV2TestRunner:
     def _execute_human_action(self, action_callable: Any, step_index: int) -> Dict[str, Any]:
         """
         Ejecuta una acción humana directa (lambda) sin pasar por la IA.
+
+        Captura automáticamente información del resultado para enriquecer
+        el contexto disponible al agente en pasos subsiguientes.
         """
         action_name = action_callable.__name__ if hasattr(action_callable, "__name__") else "lambda"
         logger.info(f"  RUNNER: Ejecutando HumanAction ({action_name})...")
-        
+
         try:
             # Ejecutar el callable pasando las herramientas
             result = action_callable(self.agent_tools)
-            
+
             # Formatear el resultado para el historial
             result_str = str(result)
+            action_detail = f"HumanAction: {action_name}"
+
             if isinstance(result, MiddlewareResult):
                 result_str = result.message
-            elif isinstance(result, dict) and "message" in result:
-                result_str = result["message"]
+            elif isinstance(result, dict):
+                # Si el resultado es un dict con información descriptiva, extraerla
+                if "message" in result:
+                    result_str = result["message"]
+
+            # Extraer información descriptiva del mensaje de resultado
+            # Ejemplos de mensajes:
+            # - "Success: Activated app 'com.imagineapps.gofixiicliente'"
+            # - "Success: Clicked element 5"
+            # - "Success: Filled field 3 with value 'test@example.com'"
+            if result_str and isinstance(result_str, str):
+                # Extraer la parte descriptiva después de "Success: "
+                if result_str.startswith("Success: "):
+                    action_description = result_str[9:]  # Omitir "Success: "
+                    action_detail = f"[HumanAction] {action_description}"
 
             logger.info(f"  RUNNER: ✓ HumanAction completada: {result_str}")
 
             # Inyectar en el historial para que la IA tenga contexto en el siguiente paso
             self.action_history.append({
                 "index": len(self.action_history) + 1,
-                "action": f"HumanAction: {action_name}",
+                "action": action_detail,
                 "result": result_str,
                 "success": True,
                 "is_human_action": True
             })
-            
+
             self._execution_stats["total_actions"] += 1
-            
+
             return {"success": True, "steps_advanced": 1}
-            
+
         except Exception as e:
             logger.error(f"  RUNNER ERROR: Fallo en HumanAction: {e}")
             logger.error(f"  Traceback:\n{traceback.format_exc()}")
@@ -604,7 +635,8 @@ class QAIV2TestRunner:
                                 context=step_context,
                                 last_action=last_tool_call,
                                 last_result=last_result_message,
-                                current_ui=current_ui_elements or (parse_result if isinstance(parse_result, list) else [])
+                                current_ui=current_ui_elements or (parse_result if isinstance(parse_result, list) else []),
+                                check_type="current"
                             )
                             phase4_5_time = int((time.time() - phase4_5_start) * 1000)
                             logger.info(f"  │ FASE 4.5: ✓ Decisión de completitud recibida en {phase4_5_time}ms")
@@ -636,7 +668,8 @@ class QAIV2TestRunner:
                                             last_action=last_tool_call,
                                             last_result=last_result_message,
                                             current_ui=ui_for_cascading,
-                                            override_step_description=next_step
+                                            override_step_description=next_step,
+                                            check_type="next"
                                         )
                                         
                                         if next_decision.get("step_completed"):
