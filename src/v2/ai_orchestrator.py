@@ -50,14 +50,32 @@ IMPORTANTE - USO DE IDs:
 - Ejemplo: touch_element_by_id(element_id=0), fill_field_by_id(element_id=1, value="texto")
 - NO confundas "id" con el atributo "resource-id" (son diferentes)
 
+TIPOS DE ELEMENTOS (possible_element_type):
+- "input": EditText - Usa fill_field_by_id(element_id, value) para escribir texto
+- "input_select": Input selector (date picker, dropdown) - Usa touch_element_by_id() para abrir selector
+  * Estos NO son editables con fill_field_by_id
+  * Debes tocar el elemento para abrir la interfaz del selector
+  * Ejemplos: date pickers (hint="21/01/2026"), dropdowns
+- "checkbox": CheckBox widget - Usa touch_element_by_id() para alternar estado checked/unchecked
+- "slider": SeekBar/Slider - Usa scroll_in_element(element_id, direction) para ajustar valor
+  * NO uses touch_element_by_id en sliders (no funciona)
+  * Ejemplo: SeekBar de año en date picker
+- "button": Botón clickable
+- "link": Link/texto clickable
+
 INSTRUCCIONES:
-1. Busca el elemento correcto por sus atributos (content-desc, text, class)
+1. Busca el elemento correcto por sus atributos (content-desc, text, class, possible_element_type)
 2. Usa el "id" de ese elemento en la herramienta correspondiente
 3. Puedes ejecutar MÚLTIPLES acciones en el mismo turno si todas pertenecen al paso actual
-4. Para campos de texto (class contiene "EditText"), usa fill_field_by_id
-5. Para hacer click, usa touch_element_by_id
-6. Si no encuentras un elemento, usa scroll
-7. Para verificaciones usa assert_screen_contains
+4. Para campos de texto (possible_element_type="input"), usa fill_field_by_id
+5. Para input selectors (possible_element_type="input_select"), usa touch_element_by_id para abrir selector
+6. Para checkboxes (possible_element_type="checkbox"), usa touch_element_by_id para marcar/desmarcar
+7. Para sliders (possible_element_type="slider"), usa scroll_in_element para ajustar valor
+8. Para hacer click en botones/links, usa touch_element_by_id
+9. scroll_screen solo mueve la pantalla completa, NO afecta elementos individuales
+10. Si necesitas scrollear dentro de un SeekBar, lista o contenedor, usa scroll_in_element
+11. Si no encuentras un elemento, usa scroll_screen
+12. Para verificaciones usa assert_screen_contains
 
 CUÁNDO ESTÁ COMPLETO UN PASO:
 - Revisa el "Historial de acciones recientes" antes de decidir
@@ -808,8 +826,8 @@ class QAIV2Orchestrator:
             {
                 "type": "function",
                 "function": {
-                    "name": "scroll",
-                    "description": "Hace scroll en la pantalla para ver más contenido. Útil cuando no encuentras el elemento que buscas.",
+                    "name": "scroll_screen",
+                    "description": "Hace scroll a nivel de PANTALLA completa (up/down). IMPORTANTE: NO afecta elementos individuales como SeekBars o listas. Para scrollear dentro de un elemento, usa scroll_in_element.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -820,6 +838,40 @@ class QAIV2Orchestrator:
                             }
                         },
                         "required": ["direction"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "scroll_in_element",
+                    "description": "Hace scroll DENTRO de un elemento específico (SeekBar, lista, contenedor scrollable). Usa esto para ajustar valores en date pickers o scrollear listas. NO uses touch_element_by_id en SeekBars - usa esta herramienta.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "element_id": {
+                                "type": "integer",
+                                "description": "ID del elemento scrollable (SeekBar, lista, etc.)",
+                            },
+                            "direction": {
+                                "type": "string",
+                                "enum": ["up", "down"],
+                                "description": "Dirección lógica del scroll: 'down' = reducir valor/bajar (ej: 2026→2025 en SeekBar de año), 'up' = aumentar valor/subir (ej: 2024→2025)",
+                            },
+                            "scroll_count": {
+                                "type": "integer",
+                                "description": "Número de swipes a ejecutar (default: 1). Útil para ajustes grandes en SeekBars.",
+                                "minimum": 1,
+                                "maximum": 20,
+                            },
+                            "scroll_multiplier": {
+                                "type": "number",
+                                "description": "Distancia del swipe (0.1-1.0, default: 0.2). Valores más pequeños = scroll más preciso.",
+                                "minimum": 0.1,
+                                "maximum": 1.0,
+                            }
+                        },
+                        "required": ["element_id", "direction"],
                     },
                 },
             },

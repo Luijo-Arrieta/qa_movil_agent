@@ -424,6 +424,74 @@ class TestUIParserHelperMethods:
         assert parser.current_id == 1
         
         parser.clear()
-        
+
         assert len(parser.element_map) == 0
         assert parser.current_id == 0
+
+    def test_parse_checkbox_widget(self):
+        """Test: CheckBox widget debe ser incluido aunque no tenga text/content-desc."""
+        xml = """
+        <hierarchy>
+            <android.widget.CheckBox
+                checkable="true"
+                checked="false"
+                clickable="true"
+                focusable="true"
+                enabled="true"
+                displayed="true"
+                class="android.widget.CheckBox"
+                bounds="[53,1475][137,1559]"/>
+        </hierarchy>
+        """
+        parser = UIParser()
+        elements = parser.parse_screen(xml)
+
+        assert len(elements) == 1
+        assert get_attr_value(elements[0], "class") == "android.widget.CheckBox"
+        assert get_attr_value(elements[0], "possible_element_type") == "checkbox"
+        assert get_attr_value(elements[0], "checkable") == "true"
+        assert get_attr_value(elements[0], "checked") == "false"
+
+    def test_parse_date_input_with_hint(self):
+        """Test: View con hint de fecha debe ser incluido y categorizado como input_select."""
+        xml = """
+        <hierarchy>
+            <android.view.View
+                hint="21/01/2026"
+                focusable="true"
+                clickable="false"
+                enabled="true"
+                displayed="true"
+                class="android.view.View"
+                bounds="[53,1307][1028,1433]"/>
+        </hierarchy>
+        """
+        parser = UIParser()
+        elements = parser.parse_screen(xml)
+
+        assert len(elements) == 1
+        assert get_attr_value(elements[0], "hint") == "21/01/2026"
+        assert get_attr_value(elements[0], "possible_element_type") == "input_select"
+        assert get_attr_value(elements[0], "focusable") == "true"
+
+    def test_parse_view_with_generic_hint(self):
+        """Test: View con hint genérico (no fecha) debe ser incluido como input_select."""
+        xml = """
+        <hierarchy>
+            <android.view.View
+                hint="Enter your name"
+                focusable="true"
+                clickable="false"
+                enabled="true"
+                displayed="true"
+                class="android.view.View"
+                bounds="[0,0][100,50]"/>
+        </hierarchy>
+        """
+        parser = UIParser()
+        elements = parser.parse_screen(xml)
+
+        assert len(elements) == 1
+        assert get_attr_value(elements[0], "hint") == "Enter your name"
+        # Should be categorized as input_select (hint present on non-EditText)
+        assert get_attr_value(elements[0], "possible_element_type") == "input_select"

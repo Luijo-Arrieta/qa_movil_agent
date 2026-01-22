@@ -792,9 +792,19 @@ class QAIV2TestRunner:
                     return (False, "Error: value missing")
                 result = self.agent_tools.fill_field_by_id(element_id, value)
 
-            elif tool_name == "scroll":
+            elif tool_name == "scroll_screen":
                 direction = tool_args.get("direction", "down")
-                result = self.agent_tools.scroll(direction)
+                result = self.agent_tools.scroll_screen(direction)
+
+            elif tool_name == "scroll_in_element":
+                element_id = tool_args.get("element_id")
+                direction = tool_args.get("direction", "down")
+                scroll_count = tool_args.get("scroll_count", 1)
+                scroll_multiplier = tool_args.get("scroll_multiplier", 0.2)
+                if element_id is None:
+                    logger.error(f"TEST_RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
+                    return (False, "Error: element_id missing")
+                result = self.agent_tools.scroll_in_element(element_id, direction, scroll_count, scroll_multiplier)
 
             elif tool_name == "go_back":
                 result = self.agent_tools.go_back()
@@ -870,7 +880,7 @@ class QAIV2TestRunner:
 
             else:
                 logger.error(f"TEST_RUNNER ERROR: Herramienta desconocida: '{tool_name}'")
-                logger.error(f"TEST_RUNNER ERROR: Herramientas válidas: touch_element_by_id, fill_field_by_id, scroll, go_back, assert_screen_contains, activate_app, terminate_app, switch_to_app, switch_to_app_keep_background, get_confirmation_code")
+                logger.error(f"TEST_RUNNER ERROR: Herramientas válidas: touch_element_by_id, fill_field_by_id, scroll_screen, scroll_in_element, go_back, assert_screen_contains, activate_app, terminate_app, switch_to_app, switch_to_app_keep_background, get_confirmation_code")
                 return (False, f"Error: Unknown tool '{tool_name}'")
 
             elapsed_ms = int((time.time() - start_time) * 1000)

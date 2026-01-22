@@ -895,21 +895,25 @@ class AppiumSkills:
         except Exception as e:
             return f"Error: Input field '{field_hint}' not found: {str(e)}"
 
-    def scroll(self, direction: str = "down") -> str:
+    def scroll_screen(self, direction: str = "down") -> str:
         """
-        Realiza scroll en la dirección especificada.
+        Realiza scroll a nivel de PANTALLA (no afecta elementos individuales).
+
+        Importante: Esta herramienta solo mueve la vista completa de la app.
+        NO afecta elementos scrollables individuales como SeekBars, listas, etc.
+        Para scrollear dentro de un elemento, usa scroll_in_element.
 
         Args:
-            direction: "up" o "down"
+            direction: Dirección del scroll ("up" o "down")
 
         Returns:
             Mensaje de éxito o error
         """
-        action_name = "scroll"
+        action_name = "scroll_screen"
         self._action_stats["total_actions"] += 1
         self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
-        
-        logger.info(f"AGENT_TOOLS: 📜 Ejecutando scroll(direction='{direction}')")
+
+        logger.info(f"AGENT_TOOLS: 📜 Ejecutando scroll_screen(direction='{direction}')")
         
         # Validar dirección
         if direction not in ["up", "down"]:
@@ -937,7 +941,7 @@ class AppiumSkills:
             time.sleep(self.min_wait_timeout)
             
             elapsed_ms = int((time.time() - start_time) * 1000)
-            success_msg = f"Success: Scrolled {direction}"
+            success_msg = f"Success: Scrolled screen {direction}"
             logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
             self._action_stats["successful_actions"] += 1
             return success_msg
@@ -946,6 +950,133 @@ class AppiumSkills:
             elapsed_ms = int((time.time() - start_time) * 1000)
             error_msg = f"Error: Could not scroll {direction}: {str(e)}"
             logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+
+    def scroll_in_element(
+        self,
+        element_id: int,
+        direction: str = "down",
+        scroll_count: int = 1,
+        scroll_multiplier: float = 0.2
+    ) -> str:
+        """
+        Realiza scroll dentro de un elemento específico (SeekBar, lista, contenedor).
+
+        Útil para:
+        - Ajustar valores en SeekBars (date pickers, sliders)
+        - Scroll en listas o contenedores scrollables
+        - Interactuar con elementos que no responden a clic
+
+        Args:
+            element_id: ID del elemento scrollable (asignado por UIParser)
+            direction: "up" o "down" (default: "down")
+                - "down" = reducir valor/índice (ej: 2026 → 2025 en año, bajar en lista)
+                - "up" = aumentar valor/índice (ej: 2024 → 2025 en año, subir en lista)
+            scroll_count: Número de swipes a ejecutar (default: 1)
+            scroll_multiplier: Distancia del swipe (0.1-1.0, default: 0.2)
+                0.2 = scroll preciso (1 item por swipe)
+                0.4 = scroll moderado (2 items por swipe)
+                0.6-1.0 = scroll rápido (3+ items por swipe)
+
+        Returns:
+            Mensaje de éxito o error
+        """
+        action_name = "scroll_in_element"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = (
+            self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        )
+
+        logger.info(
+            f"AGENT_TOOLS: 📜 Ejecutando {action_name}(element_id={element_id}, "
+            f"direction='{direction}', count={scroll_count}, multiplier={scroll_multiplier})"
+        )
+
+        # Validar dirección
+        if direction not in ["up", "down"]:
+            error_msg = f"Error: Dirección inválida '{direction}'. Debe ser 'up' o 'down'"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+
+        # Validar scroll_count
+        if not isinstance(scroll_count, int) or scroll_count < 1:
+            logger.warning(f"AGENT_TOOLS: scroll_count inválido ({scroll_count}), usando 1")
+            scroll_count = 1
+
+        # Validar scroll_multiplier
+        if not isinstance(scroll_multiplier, (int, float)) or not (0.1 <= scroll_multiplier <= 1.0):
+            logger.warning(f"AGENT_TOOLS: scroll_multiplier inválido ({scroll_multiplier}), usando 0.2")
+            scroll_multiplier = 0.2
+
+        # Obtener XPath del elemento
+        xpath = self.ui_parser.get_element_by_id(element_id)
+        if not xpath:
+            error_msg = f"Error: Elemento con ID {element_id} no encontrado en el mapeo"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            self._action_stats["failed_actions"] += 1
+            return error_msg
+
+        start_time = time.time()
+        try:
+            # Buscar el elemento
+            element = self.driver.find_element(AppiumBy.XPATH, xpath)
+            logger.debug(f"AGENT_TOOLS: Elemento encontrado, obteniendo bounds...")
+
+            # Obtener bounds del elemento scrollable
+            bounds_str = element.get_attribute("bounds") or ""
+            match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+            if not match:
+                error_msg = f"Error: No se pudo parsear bounds del elemento ID {element_id}"
+                logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+                self._action_stats["failed_actions"] += 1
+                return error_msg
+
+            x1, y1, x2, y2 = map(int, match.groups())
+
+            # Calcular coordenadas de swipe dentro del elemento
+            start_x = x1 + (x2 - x1) // 2  # Centro horizontal
+            start_y = y1 + (y2 - y1) // 2  # Centro vertical
+            element_height = y2 - y1
+
+            # Calcular distancia del swipe
+            scroll_amount = int(element_height * scroll_multiplier)
+
+            # Dirección del swipe en SeekBar:
+            # 'down' = reducir valor (años menores) → swipe físico hacia abajo (Y aumenta)
+            # 'up' = aumentar valor (años mayores) → swipe físico hacia arriba (Y disminuye)
+            if direction == "down":
+                end_y = start_y + scroll_amount  # Swipe hacia abajo
+            else:  # up
+                end_y = start_y - scroll_amount  # Swipe hacia arriba
+
+            logger.debug(
+                f"AGENT_TOOLS: Ejecutando {scroll_count} swipe(s) dentro del elemento "
+                f"desde ({start_x}, {start_y}) hasta ({start_x}, {end_y})"
+            )
+
+            # Ejecutar swipes
+            for i in range(scroll_count):
+                self.driver.swipe(start_x, start_y, start_x, end_y, duration=500)
+                if i < scroll_count - 1:  # Pausa entre swipes excepto el último
+                    time.sleep(0.5)
+                logger.debug(f"AGENT_TOOLS:   Swipe {i + 1}/{scroll_count} completado")
+
+            time.sleep(self.min_wait_timeout)
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            success_msg = f"Success: Scrolled {direction} {scroll_count} time(s) in element ID {element_id}"
+            logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+            self._action_stats["successful_actions"] += 1
+            return success_msg
+
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Error: Could not scroll in element ID {element_id}: {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            logger.error(f"AGENT_TOOLS ERROR: XPath usado: {xpath}")
             logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
             self._action_stats["failed_actions"] += 1
             return error_msg

@@ -609,9 +609,20 @@ class UIParser:
         # REGLAS DE INCLUSIÓN (aplicar después de las exclusiones)
         # ======================================================================
 
-        # 1. INPUTS: Siempre incluidos (aunque no tengan info útil)
-        is_input = "edittext" in class_name or "input" in class_name
-        if is_input:
+        # 1. FORM WIDGETS: Siempre incluidos (EditText, CheckBox, SeekBar)
+        is_form_widget = (
+            "edittext" in class_name
+            or "input" in class_name
+            or "checkbox" in class_name
+            or "seekbar" in class_name
+        )
+        if is_form_widget:
+            return True
+
+        # 1.5. INPUT SELECTORS: Elementos con hint (date pickers, dropdowns)
+        # Solo inputs tienen hint en Android → si tiene hint, es un input selector
+        hint = element.get("hint", "").strip()
+        if focusable and hint:
             return True
 
         # 2. IMAGEVIEW: Incluir si:
@@ -718,6 +729,13 @@ class UIParser:
         if hint:
             attrs.append({"name": "hint", "value": hint})
 
+        # checkable y checked solo para checkboxes
+        checkable = element.get("checkable", "false")
+        if checkable == "true":
+            attrs.append({"name": "checkable", "value": checkable})
+            checked = element.get("checked", "false")
+            attrs.append({"name": "checked", "value": checked})
+
         # NUEVO: Detectar y agregar tipo de elemento
         element_type = self._detect_element_type(element)
         attrs.append({"name": "possible_element_type", "value": element_type})
@@ -780,11 +798,25 @@ class UIParser:
         # Calcular tamaño del elemento desde bounds
         width, height = self._parse_bounds_size(bounds)
         is_small = width < 200 and height < 200  # Iconos pequeños (< 200x200)
-        
+
+        # 0. INPUT SELECTOR: Elementos con hint (no EditText)
+        # Date pickers, dropdowns, etc. que no aceptan texto directo
+        hint = element.get("hint", "").strip()
+        if hint and focusable and "edittext" not in class_name:
+            return "input_select"
+
         # 1. INPUT: EditText siempre es input
         if "edittext" in class_name:
             return "input"
-        
+
+        # 1.5. CHECKBOX: CheckBox widget
+        if "checkbox" in class_name:
+            return "checkbox"
+
+        # 1.6. SEEKBAR/SLIDER: Control deslizante
+        if "seekbar" in class_name or "slider" in class_name:
+            return "slider"
+
         # 2. IMAGEVIEW: Diferentes tipos según clickable y tamaño
         if "imageview" in class_name:
             if clickable:
