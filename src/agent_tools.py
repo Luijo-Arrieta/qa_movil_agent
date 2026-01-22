@@ -122,6 +122,36 @@ class AppiumSkills:
                     f"ui_stability_interval={self.ui_stability_interval}s, "
                     f"ui_stability_threshold={self.ui_stability_threshold}")
 
+    def _return_action_result(self, message: str, success: bool, capture_ui: bool = True) -> Dict[str, Any]:
+        """
+        Helper para retornar un resultado estructurado con el estado de la UI.
+        
+        Args:
+            message: Mensaje descriptivo del resultado
+            success: Si la acción fue exitosa
+            capture_ui: Si se debe capturar el nuevo estado de la UI
+            
+        Returns:
+            Diccionario con {success, message, ui_elements}
+        """
+        ui_elements = None
+        if capture_ui and success:
+            try:
+                # Capturar el nuevo estado de la UI después de la acción
+                # El Test Runner usará esto para evitar un re-parse extra
+                parse_result = self.ui_parser.get_ui(wait_stable=True)
+                if not isinstance(parse_result, MiddlewareResult):
+                    ui_elements = parse_result
+                    logger.debug(f"AGENT_TOOLS: Feedback UI capturado ({len(ui_elements)} elementos)")
+            except Exception as e:
+                logger.warning(f"AGENT_TOOLS WARNING: No se pudo capturar feedback UI: {e}")
+        
+        return {
+            "success": success,
+            "message": message,
+            "ui_elements": ui_elements
+        }
+
     def get_screen_tree(self) -> str:
         """
         Obtiene el XML de la pantalla actual.
@@ -408,7 +438,7 @@ class AppiumSkills:
             # DEBUG: Dump completo del mapeo para diagnóstico
             self.ui_parser.debug_dump_element_map(log_output=True)
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
         
         logger.debug(f"AGENT_TOOLS: XPath encontrado: {xpath}")
 
@@ -483,7 +513,7 @@ class AppiumSkills:
             success_msg = f"Success: Clicked on element ID {element_id} ({click_method})"
             logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
             self._action_stats["successful_actions"] += 1
-            return success_msg
+            return self._return_action_result(success_msg, True)
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -501,7 +531,7 @@ class AppiumSkills:
                            "Necesita re-parseo de pantalla")
             
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
 
     def touch_out_element(self, element_id: int, direction: str, distance_percent: int) -> str:
         """
@@ -528,14 +558,14 @@ class AppiumSkills:
             error_msg = f"Error: Dirección inválida '{direction}'. Debe ser una de: {valid_directions}"
             logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
         
         # Validar distance_percent
         if distance_percent < 50 or distance_percent > 100:
             error_msg = f"Error: distance_percent debe estar entre 50 y 100, recibido: {distance_percent}"
             logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
         
         # Paso 1: Obtener XPath del mapeo
         logger.debug(f"AGENT_TOOLS: Buscando XPath para ID {element_id}...")
@@ -546,7 +576,7 @@ class AppiumSkills:
             logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
             logger.error(f"AGENT_TOOLS ERROR: IDs disponibles: {list(self.ui_parser.element_map.keys())}")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
         
         logger.debug(f"AGENT_TOOLS: XPath encontrado: {xpath}")
         
@@ -563,7 +593,7 @@ class AppiumSkills:
                 error_msg = f"Error: No se pudieron obtener bounds del elemento ID {element_id}"
                 logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
                 self._action_stats["failed_actions"] += 1
-                return error_msg
+                return self._return_action_result(error_msg, False, capture_ui=False)
             
             # Parsear bounds "[x1,y1][x2,y2]"
             match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
@@ -571,7 +601,7 @@ class AppiumSkills:
                 error_msg = f"Error: No se pudo parsear bounds '{bounds_str}' del elemento ID {element_id}"
                 logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
                 self._action_stats["failed_actions"] += 1
-                return error_msg
+                return self._return_action_result(error_msg, False, capture_ui=False)
             
             x1, y1, x2, y2 = map(int, match.groups())
             width = x2 - x1
@@ -625,7 +655,7 @@ class AppiumSkills:
                     error_msg = f"Error: No hay suficiente espacio en ninguna dirección (máximo: {space_map[best_direction]}px)"
                     logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
                     self._action_stats["failed_actions"] += 1
-                    return error_msg
+                    return self._return_action_result(error_msg, False, capture_ui=False)
             
             # Calcular coordenadas finales basándose en la dirección
             click_x = None
@@ -650,7 +680,7 @@ class AppiumSkills:
                 error_msg = f"Error: Coordenadas calculadas ({click_x}, {click_y}) están fuera de la pantalla ({screen_width}x{screen_height})"
                 logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
                 self._action_stats["failed_actions"] += 1
-                return error_msg
+                return self._return_action_result(error_msg, False, capture_ui=False)
             
             logger.debug(
                 f"AGENT_TOOLS: Clic fuera del elemento en dirección '{final_direction}' "
@@ -669,7 +699,7 @@ class AppiumSkills:
             success_msg = f"Success: Clicked outside element ID {element_id} in direction '{final_direction}' at ({click_x}, {click_y})"
             logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
             self._action_stats["successful_actions"] += 1
-            return success_msg
+            return self._return_action_result(success_msg, True)
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -679,7 +709,7 @@ class AppiumSkills:
             logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
             
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
 
     def touch_element_by_text(self, text_description: str) -> str:
         """
@@ -703,9 +733,13 @@ class AppiumSkills:
             element = self.driver.find_element(AppiumBy.XPATH, xpath)
             element.click()
             time.sleep(self.min_wait_timeout)
-            return f"Success: Clicked on '{text_description}'"
+            success_msg = f"Success: Clicked on '{text_description}'"
+            logger.info(f"AGENT_TOOLS: ✓ {success_msg}")
+            return self._return_action_result(success_msg, True)
         except Exception as e:
-            return f"Error: Could not find element with text '{text_description}': {str(e)}"
+            error_msg = f"Error: Could not find element with text '{text_description}': {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            return self._return_action_result(error_msg, False, capture_ui=False)
 
     def fill_field_by_id(self, element_id: int, value: str) -> str:
         """
@@ -737,7 +771,7 @@ class AppiumSkills:
             logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
             self.ui_parser.debug_dump_element_map(log_output=True)
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
         
         # Paso 2: Convertir attrs a diccionario para acceso directo
         attrs_dict = {attr.get("name"): attr.get("value", "") for attr in element_info.get("attrs", [])}
@@ -752,13 +786,13 @@ class AppiumSkills:
             logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
             logger.error(f"AGENT_TOOLS ERROR: Usa touch_element_by_id para elementos no editables")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
         
         if not xpath:
             error_msg = f"Error: No se pudo obtener XPath para elemento ID {element_id}"
             logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
         
         logger.debug(f"AGENT_TOOLS: Clase válida: {element_class}")
         logger.debug(f"AGENT_TOOLS: XPath: {xpath}")
@@ -863,7 +897,7 @@ class AppiumSkills:
             self.hide_keyboard()
             time.sleep(self.min_wait_timeout)  # Esperar a que la UI se estabilice
         
-        return result_msg
+        return self._return_action_result(result_msg, "Success" in result_msg)
 
     def fill_field(self, field_hint: str, value: str) -> str:
         """
@@ -891,32 +925,40 @@ class AppiumSkills:
             element.clear()
             element.send_keys(value)
             self.hide_keyboard()
-            return f"Success: Typed '{value}' into '{field_hint}'"
+            success_msg = f"Success: Typed '{value}' into '{field_hint}'"
+            logger.info(f"AGENT_TOOLS: ✓ {success_msg}")
+            return self._return_action_result(success_msg, True)
         except Exception as e:
-            return f"Error: Input field '{field_hint}' not found: {str(e)}"
+            error_msg = f"Error: Input field '{field_hint}' not found: {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            return self._return_action_result(error_msg, False, capture_ui=False)
 
-    def scroll(self, direction: str = "down") -> str:
+    def scroll_screen(self, direction: str = "down") -> str:
         """
-        Realiza scroll en la dirección especificada.
+        Realiza scroll a nivel de PANTALLA (no afecta elementos individuales).
+
+        Importante: Esta herramienta solo mueve la vista completa de la app.
+        NO afecta elementos scrollables individuales como SeekBars, listas, etc.
+        Para scrollear dentro de un elemento, usa scroll_in_element.
 
         Args:
-            direction: "up" o "down"
+            direction: Dirección del scroll ("up" o "down")
 
         Returns:
             Mensaje de éxito o error
         """
-        action_name = "scroll"
+        action_name = "scroll_screen"
         self._action_stats["total_actions"] += 1
         self._action_stats["actions_by_type"][action_name] = self._action_stats["actions_by_type"].get(action_name, 0) + 1
-        
-        logger.info(f"AGENT_TOOLS: 📜 Ejecutando scroll(direction='{direction}')")
+
+        logger.info(f"AGENT_TOOLS: 📜 Ejecutando scroll_screen(direction='{direction}')")
         
         # Validar dirección
         if direction not in ["up", "down"]:
             error_msg = f"Error: Dirección de scroll inválida: '{direction}'. Debe ser 'up' o 'down'"
             logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
         
         start_time = time.time()
         try:
@@ -937,10 +979,10 @@ class AppiumSkills:
             time.sleep(self.min_wait_timeout)
             
             elapsed_ms = int((time.time() - start_time) * 1000)
-            success_msg = f"Success: Scrolled {direction}"
+            success_msg = f"Success: Scrolled screen {direction}"
             logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
             self._action_stats["successful_actions"] += 1
-            return success_msg
+            return self._return_action_result(success_msg, True)
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -948,7 +990,136 @@ class AppiumSkills:
             logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
             logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
+
+    def scroll_in_element(
+        self,
+        element_id: int,
+        direction: str = "down",
+        scroll_count: int = 1,
+        item_multiplier: int = 1
+    ) -> Dict[str, Any]:
+        """
+        Realiza scroll dentro de un elemento específico (SeekBar, lista, contenedor).
+
+        Útil para:
+        - Ajustar valores en SeekBars (date pickers, sliders)
+        - Scroll en listas o contenedores scrollables
+
+        Args:
+            element_id: ID del elemento scrollable (asignado por UIParser)
+            direction: "up" o "down" (default: "down")
+                - "down" = reducir valor/índice (ej: 2026 → 2025 en año, bajar en lista)
+                - "up" = aumentar valor/índice (ej: 2024 → 2025 en año, subir en lista)
+            scroll_count: Número de swipes a ejecutar (default: 1)
+            item_multiplier: Cuántos elementos mover por cada swipe (1-5, default: 1)
+                - 1 = Mover 1 elemento (ej: 2026 → 2025)
+                - 2 = Mover 2 elementos (ej: 2026 → 2024)
+                - 5 = Mover 5 elementos (scroll rápido)
+
+        Returns:
+            Diccionario con resultado y estado de UI
+        """
+        action_name = "scroll_in_element"
+        self._action_stats["total_actions"] += 1
+        self._action_stats["actions_by_type"][action_name] = (
+            self._action_stats["actions_by_type"].get(action_name, 0) + 1
+        )
+
+        logger.info(
+            f"AGENT_TOOLS: 📜 Ejecutando {action_name}(element_id={element_id}, "
+            f"direction='{direction}', count={scroll_count}, items={item_multiplier})"
+        )
+
+        # Validar dirección
+        if direction not in ["up", "down"]:
+            error_msg = f"Error: Dirección inválida '{direction}'. Debe ser 'up' o 'down'"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            self._action_stats["failed_actions"] += 1
+            return self._return_action_result(error_msg, False, capture_ui=False)
+
+        # Validar scroll_count
+        if not isinstance(scroll_count, int) or scroll_count < 1:
+            logger.warning(f"AGENT_TOOLS: scroll_count inválido ({scroll_count}), usando 1")
+            scroll_count = 1
+
+        # Validar item_multiplier
+        if not isinstance(item_multiplier, int) or not (1 <= item_multiplier <= 5):
+            logger.warning(f"AGENT_TOOLS: item_multiplier inválido ({item_multiplier}), usando 1")
+            item_multiplier = 1
+
+        # Obtener XPath del elemento
+        xpath = self.ui_parser.get_element_by_id(element_id)
+        if not xpath:
+            error_msg = f"Error: Elemento con ID {element_id} no encontrado en el mapeo"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+            self._action_stats["failed_actions"] += 1
+            return self._return_action_result(error_msg, False, capture_ui=False)
+
+        start_time = time.time()
+        try:
+            # Buscar el elemento
+            element = self.driver.find_element(AppiumBy.XPATH, xpath)
+            logger.debug(f"AGENT_TOOLS: Elemento encontrado, obteniendo bounds...")
+
+            # Obtener bounds del elemento scrollable
+            bounds_str = element.get_attribute("bounds") or ""
+            match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+            if not match:
+                error_msg = f"Error: No se pudo parsear bounds del elemento ID {element_id}"
+                logger.error(f"AGENT_TOOLS ERROR: {error_msg}")
+                self._action_stats["failed_actions"] += 1
+                return self._return_action_result(error_msg, False, capture_ui=False)
+
+            x1, y1, x2, y2 = map(int, match.groups())
+
+            # Calcular coordenadas de swipe dentro del elemento
+            start_x = x1 + (x2 - x1) // 2  # Centro horizontal
+            start_y = y1 + (y2 - y1) // 2  # Centro vertical
+            element_height = y2 - y1
+
+            # Calcular distancia del swipe basándose en multiplicador de items
+            # Mapeo: 1 item ~= 22% de la altura (ajuste empírico basado en scroll_multiplier=0.2 original)
+            # 1 -> 0.22, 2 -> 0.44, etc.
+            swipe_factor = item_multiplier * 0.22
+            scroll_amount = int(element_height * swipe_factor)
+
+            # Dirección del swipe en SeekBar:
+            # 'down' = reducir valor (años menores) → swipe físico hacia abajo (Y aumenta)
+            # 'up' = aumentar valor (años mayores) → swipe físico hacia arriba (Y disminuye)
+            if direction == "down":
+                end_y = start_y + scroll_amount  # Swipe hacia abajo
+            else:  # up
+                end_y = start_y - scroll_amount  # Swipe hacia arriba
+
+            logger.debug(
+                f"AGENT_TOOLS: Ejecutando {scroll_count} swipe(s) dentro del elemento "
+                f"desde ({start_x}, {start_y}) hasta ({start_x}, {end_y})"
+            )
+
+            # Ejecutar swipes
+            for i in range(scroll_count):
+                self.driver.swipe(start_x, start_y, start_x, end_y, duration=500)
+                if i < scroll_count - 1:  # Pausa entre swipes excepto el último
+                    time.sleep(0.5)
+                logger.debug(f"AGENT_TOOLS:   Swipe {i + 1}/{scroll_count} completado")
+
+            time.sleep(self.min_wait_timeout)
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            success_msg = f"Success: Scrolled {direction} {scroll_count} time(s) in element ID {element_id}"
+            logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
+            self._action_stats["successful_actions"] += 1
+            return self._return_action_result(success_msg, True)
+
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Error: Could not scroll in element ID {element_id}: {str(e)}"
+            logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
+            logger.error(f"AGENT_TOOLS ERROR: XPath usado: {xpath}")
+            logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
+            self._action_stats["failed_actions"] += 1
+            return self._return_action_result(error_msg, False, capture_ui=False)
 
     def go_back(self) -> str:
         """
@@ -972,7 +1143,7 @@ class AppiumSkills:
             success_msg = "Success: Pressed back button"
             logger.info(f"AGENT_TOOLS: ✓ {success_msg} (en {elapsed_ms}ms)")
             self._action_stats["successful_actions"] += 1
-            return success_msg
+            return self._return_action_result(success_msg, True)
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -980,7 +1151,7 @@ class AppiumSkills:
             logger.error(f"AGENT_TOOLS ERROR: {error_msg} (después de {elapsed_ms}ms)")
             logger.error(f"AGENT_TOOLS ERROR: Traceback:\n{traceback.format_exc()}")
             self._action_stats["failed_actions"] += 1
-            return error_msg
+            return self._return_action_result(error_msg, False, capture_ui=False)
 
     def hide_keyboard(self) -> bool:
         """
@@ -1100,11 +1271,15 @@ class AppiumSkills:
                 element = self.driver.find_element(AppiumBy.XPATH, xpath)
                 element.click()
                 time.sleep(self.min_wait_timeout)
-                return f"Success: Dismissed popup by clicking '{button_text}'"
+                success_msg = f"Success: Dismissed popup by clicking '{button_text}'"
+                logger.info(f"AGENT_TOOLS: ✓ {success_msg}")
+                return self._return_action_result(success_msg, True)
             except Exception:
                 continue
 
-        return "Error: Could not find popup close button"
+        error_msg = "Error: Could not find popup close button"
+        logger.warning(f"AGENT_TOOLS: ✗ {error_msg}")
+        return self._return_action_result(error_msg, False, capture_ui=False)
 
     # =========================================================================
     # GESTIÓN MULTI-APP - Métodos para cambiar entre múltiples aplicaciones

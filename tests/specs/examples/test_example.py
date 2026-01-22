@@ -1,7 +1,7 @@
 """
 Ejemplo de uso del agente de IA para pruebas móviles.
 
-Este archivo muestra cómo crear tests usando el AITestRunner
+Este archivo muestra cómo crear tests usando el create_qai
 para ejecutar flujos completos en apps móviles usando lenguaje natural.
 
 REQUISITOS:
@@ -61,7 +61,7 @@ class TestAIAgentExample:
         Este test demuestra cómo el agente puede navegar por la app
         basándose solo en descripciones en lenguaje natural.
         """
-        runner = AITestRunner(driver=driver_setup)
+        runner = create_qai(driver=driver_setup)
 
         test_plan = [
             "Abrir el menú principal",
@@ -82,7 +82,7 @@ class TestAIAgentExample:
         """
         objective = "Completar formulario de registro con datos de prueba"
 
-        runner = AITestRunner(driver=driver_setup, objective=objective)
+        runner = create_qai(driver=driver_setup, objective=objective)
 
         test_plan = [
             "Navegar al formulario de registro",
@@ -118,7 +118,7 @@ class TestMultiAppExample:
         """
         objective = "Flujo completo de solicitud: Cliente crea, Técnico acepta"
         
-        runner = AITestRunner(driver=driver_setup, objective=objective)
+        runner = create_qai(driver=driver_setup, objective=objective)
         
         # Obtener credenciales desde variables de entorno
         test_email = Config.TEST_USER_EMAIL

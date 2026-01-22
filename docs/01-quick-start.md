@@ -59,6 +59,9 @@ Abre **otra terminal nueva** y ejecuta:
 
 ```bash
 appium --use-plugins=all
+
+# O si tienes problemas de CORS
+appium --use-plugins=all --allow-cors
 ```
 
 **Resultado esperado:** Verás mensajes como:
@@ -124,7 +127,6 @@ Genera el reporte visual ejecutando:
 allure serve reports/allure-results
 ```
 
-
 Luego abre el archivo `reports/allure-report.html` en tu navegador. Verás:
 
 - Screenshots de la pantalla del celular
@@ -138,6 +140,7 @@ Luego abre el archivo `reports/allure-report.html` en tu navegador. Verás:
 **Causa:** Appium no está corriendo o está en otro puerto.
 
 **Solución:**
+
 1. Verifica que la terminal de Appium siga abierta
 2. Verifica que diga "listener started on http://0.0.0.0:4723"
 
@@ -146,6 +149,7 @@ Luego abre el archivo `reports/allure-report.html` en tu navegador. Verás:
 **Causa:** El emulador no está corriendo o no está conectado.
 
 **Solución:**
+
 1. Verifica que el emulador esté abierto y haya cargado completamente
 2. Ejecuta `adb devices` - deberías ver algo como:
 
@@ -159,6 +163,7 @@ emulator-5554   device
 **Causa:** No está configurada la aplicación a probar.
 
 **Solución:**
+
 1. Abre el archivo `.env.local` (o créalo si no existe)
 2. Agrega la ruta a tu APK:
 

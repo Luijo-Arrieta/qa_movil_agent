@@ -29,35 +29,46 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional. Tu objetivo es ejecutar pruebas en aplicaciones móviles Android.
 
 FORMATO DE ELEMENTOS (TOON):
-Los elementos se muestran en formato tabular TOON. Cada fila es un elemento con sus atributos.
+Los elementos se muestran en formato tabular TOON. Cada fila es un elemento con sus atributos optimizados para la ejecución.
 - "id": número único (USAR ESTE en las herramientas)
-- Los demás campos son atributos del elemento Android
+- "possible_element_type": Categoría lógica (input, button, slider, etc.)
+- "xpath": Selector jerárquico para Appium
+- "hint": Texto placeholder o sugerencia
+- "checked": "true" si está marcado (radio/checkbox)
+- "checkable": "true" si permite marca
+- "clickable": "true" si permite touch
+- "password": "true" si es campo oculto
 
 Ejemplo TOON:
-[2]{id	content-desc	class	xpath	clickable}:
-  0	Botón login	android.widget.Button	//android.widget.Button[@content-desc="Botón login"]	true
-  1	Campo email	android.widget.EditText	//android.widget.EditText[@content-desc="Campo email"]	true
-
-ATRIBUTOS IMPORTANTES PARA IDENTIFICAR ELEMENTOS:
-- "content-desc": Texto de accesibilidad (lo que describe el elemento)
-- "text": Texto visible en el elemento
-- "resource-id": ID del recurso Android
-- "class": Tipo de elemento (Button, EditText, View, etc.)
-- "hint": Placeholder en campos de texto
+[2]{id|possible_element_type|xpath|hint|clickable}:
+  0|button|//android.widget.Button[@content-desc="Login"]||true
+  1|input|//android.widget.EditText[@resource-id="email"]|correo@ejemplo.com|true
 
 IMPORTANTE - USO DE IDs:
 - USA el campo "id" del elemento en las herramientas
 - Ejemplo: touch_element_by_id(element_id=0), fill_field_by_id(element_id=1, value="texto")
-- NO confundas "id" con el atributo "resource-id" (son diferentes)
+
+TIPOS DE ELEMENTOS (possible_element_type):
+- "input": EditText - Usa fill_field_by_id(element_id, value) para escribir texto
+- "input_select": Input selector (date picker, dropdown) - Usa touch_element_by_id() para abrir selector
+- "checkbox": CheckBox widget - Usa touch_element_by_id() para alternar estado checked/unchecked
+- "slider": SeekBar/Slider - Usa scroll_in_element(element_id, direction) para ajustar valor
+- "button": Botón clickable
+- "link": Link/texto clickable
 
 INSTRUCCIONES:
-1. Busca el elemento correcto por sus atributos (content-desc, text, class)
+1. Busca el elemento correcto por sus atributos (content-desc, text, class, possible_element_type)
 2. Usa el "id" de ese elemento en la herramienta correspondiente
 3. Puedes ejecutar MÚLTIPLES acciones en el mismo turno si todas pertenecen al paso actual
-4. Para campos de texto (class contiene "EditText"), usa fill_field_by_id
-5. Para hacer click, usa touch_element_by_id
-6. Si no encuentras un elemento, usa scroll
-7. Para verificaciones usa assert_screen_contains
+4. Para campos de texto (possible_element_type="input"), usa fill_field_by_id
+5. Para input selectors (possible_element_type="input_select"), usa touch_element_by_id para abrir selector
+6. Para checkboxes (possible_element_type="checkbox"), usa touch_element_by_id para marcar/desmarcar
+7. Para sliders (possible_element_type="slider"), usa scroll_in_element para ajustar valor
+8. Para hacer click en botones/links, usa touch_element_by_id
+9. scroll_screen solo mueve la pantalla completa, NO afecta elementos individuales
+10. Si necesitas scrollear dentro de un SeekBar, lista o contenedor, usa scroll_in_element
+11. Si no encuentras un elemento, usa scroll_screen
+12. Para verificaciones usa assert_screen_contains
 
 CUÁNDO ESTÁ COMPLETO UN PASO:
 - Revisa el "Historial de acciones recientes" antes de decidir
@@ -189,12 +200,10 @@ class QAIV2Orchestrator:
 
     def __init__(self):
         """Inicializa el orquestador con el proveedor de IA configurado."""
-        logger.info("=" * 70)
-        logger.info("AI_ORCHESTRATOR: Inicializando orquestador de IA (QAI V2 - Conversational)")
-        logger.info("=" * 70)
+        logger.info("  ORCHESTRATOR: Inicializando orquestador de IA (QAI V2)")
         
         self.provider = Config.DEFAULT_AI_PROVIDER
-        logger.info(f"AI_ORCHESTRATOR: Proveedor seleccionado: {self.provider}")
+        logger.info(f"  ORCHESTRATOR: Proveedor: {self.provider}")
         
         # Estadísticas de llamadas
         self._call_stats = {
@@ -208,26 +217,26 @@ class QAIV2Orchestrator:
         }
         
         if self.provider == "openai":
-            logger.debug("AI_ORCHESTRATOR: Configurando cliente OpenAI...")
+            logger.debug("  ORCHESTRATOR: Configurando cliente OpenAI...")
             if not Config.OPENAI_API_KEY:
-                logger.error("AI_ORCHESTRATOR ERROR: OPENAI_API_KEY no está configurada")
+                logger.error("  ORCHESTRATOR ERROR: OPENAI_API_KEY no está configurada")
                 raise ValueError("OPENAI_API_KEY no está configurada")
             
             # Verificar formato de API key (debe empezar con sk-)
             if not Config.OPENAI_API_KEY.startswith("sk-"):
-                logger.warning("AI_ORCHESTRATOR WARNING: OPENAI_API_KEY no tiene el formato esperado (sk-...)")
+                logger.warning("  ORCHESTRATOR WARNING: OPENAI_API_KEY no tiene el formato esperado (sk-...)")
 
             self.client = OpenAI(
                 api_key=Config.OPENAI_API_KEY,
                 timeout=Config.AI_API_TIMEOUT
             )
             self.model = Config.OPENAI_MODEL
-            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente OpenAI configurado con modelo: {self.model}, timeout: {Config.AI_API_TIMEOUT}s")
+            logger.info(f"  ORCHESTRATOR: ✓ Cliente OpenAI ({self.model})")
 
         elif self.provider == "anthropic":
-            logger.debug("AI_ORCHESTRATOR: Configurando cliente Anthropic...")
+            logger.debug("  ORCHESTRATOR: Configurando cliente Anthropic...")
             if not Config.ANTHROPIC_API_KEY:
-                logger.error("AI_ORCHESTRATOR ERROR: ANTHROPIC_API_KEY no está configurada")
+                logger.error("  ORCHESTRATOR ERROR: ANTHROPIC_API_KEY no está configurada")
                 raise ValueError("ANTHROPIC_API_KEY no está configurada")
 
             self.client = Anthropic(
@@ -235,7 +244,7 @@ class QAIV2Orchestrator:
                 timeout=Config.AI_API_TIMEOUT
             )
             self.model = Config.ANTHROPIC_MODEL
-            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente Anthropic configurado con modelo: {self.model}, timeout: {Config.AI_API_TIMEOUT}s")
+            logger.info(f"  ORCHESTRATOR: ✓ Cliente Anthropic ({self.model})")
 
         elif self.provider == "deepseek":
             logger.debug("AI_ORCHESTRATOR: Configurando cliente DeepSeek...")
@@ -250,10 +259,10 @@ class QAIV2Orchestrator:
                 timeout=Config.AI_API_TIMEOUT
             )
             self.model = Config.DEEPSEEK_MODEL
-            logger.info(f"AI_ORCHESTRATOR: ✓ Cliente DeepSeek configurado con modelo: {self.model}, timeout: {Config.AI_API_TIMEOUT}s")
+            logger.info(f"  ORCHESTRATOR: ✓ Cliente DeepSeek ({self.model})")
             
         else:
-            logger.error(f"AI_ORCHESTRATOR ERROR: Proveedor no soportado: {self.provider}")
+            logger.error(f"  ORCHESTRATOR ERROR: Proveedor no soportado: {self.provider}")
             raise ValueError(f"Proveedor de IA no soportado: {self.provider}")
 
         # Inicializar clientes de fallback si está habilitado
@@ -325,23 +334,17 @@ class QAIV2Orchestrator:
             Diccionario con la decisión de la IA (tool_call o mensaje)
         """
         logger.info("=" * 70)
-        logger.info("AI_ORCHESTRATOR: Solicitando decisión de acción")
+        logger.info("[EXECUTOR]: Solicitando decisión de acción")
         logger.info("=" * 70)
         
         self._call_stats["total_calls"] += 1
         call_number = self._call_stats["total_calls"]
-        logger.info(f"AI_ORCHESTRATOR: Llamada #{call_number}")
+        logger.info(f"[EXECUTOR]: Llamada #{call_number}")
         
         # Log inputs
-        logger.debug(f"AI_ORCHESTRATOR: Objetivo: '{context.objective or 'No definido'}'")
-        logger.debug(
-            "AI_ORCHESTRATOR: Paso actual %s/%s: '%s'",
-            context.step_index,
-            context.total_steps,
-            context.current_step,
-        )
-        logger.debug(f"AI_ORCHESTRATOR: Elementos UI disponibles: {len(ui_elements)}")
-        logger.debug(f"AI_ORCHESTRATOR: Historial de acciones: {len(context.action_history)} entradas")
+        # Log simplificados
+        logger.debug(f"[EXECUTOR]: Paso {context.step_index}/{context.total_steps}: '{context.current_step}'")
+        logger.debug(f"[EXECUTOR]: UI Elements: {len(ui_elements)} | History: {len(context.action_history)}")
         
         if not ui_elements:
             logger.warning("AI_ORCHESTRATOR WARNING: No hay elementos UI para analizar")
@@ -408,38 +411,67 @@ class QAIV2Orchestrator:
             logger.error(f"AI_ORCHESTRATOR ERROR: Traceback:\n{traceback.format_exc()}")
             raise
 
-    def _filter_ui_elements_for_toon(self, ui_elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _filter_ui_elements_for_toon(
+        self, 
+        ui_elements: List[Dict[str, Any]], 
+        mode: str = "executor"
+    ) -> List[Dict[str, Any]]:
         """
-        Filtra propiedades de elementos UI antes de convertir a TOON.
-        
-        Elimina propiedades que no son necesarias para el LLM para reducir
-        el consumo de tokens. Actualmente elimina: bounds, clickable, enabled, displayed.
-        
-        Args:
-            ui_elements: Lista de elementos UI originales
-            
-        Returns:
-            Lista de elementos UI filtrados (sin las propiedades especificadas)
+        Filtra propiedades de elementos UI antes de convertir a TOON según el modo.
+        Preserva el orden exacto solicitado por el usuario.
         """
-        # Propiedades a eliminar antes de convertir a TOON
-        # Comentar/descomentar líneas para cambiar qué propiedades se eliminan
-        properties_to_remove = {
-            "bounds",      # Coordenadas de pantalla (no necesarias para identificación)
-            # "clickable", # Estado clickable - INCLUIDO: importante para que el LLM sepa qué elementos son clickables
-            "enabled",     # Estado habilitado (redundante)
-            "displayed",   # Estado visible (redundante, solo elementos visibles están en la lista)
-        }
+        # Definición de orden de atributos (Listas para preservar el orden)
+        executor_order = [
+            "possible_element_type", "xpath", "hint", 
+            "checked", "checkable", "clickable", "password"
+        ]
+        
+        inspector_order = [
+            "possible_element_type", "xpath", "focused", 
+            "checked", "password"
+        ]
         
         filtered_elements = []
         for element in ui_elements:
-            # Crear copia del elemento para no modificar el original
-            filtered_element = element.copy()
-            if "attrs" in filtered_element:
-                # Filtrar attrs eliminando las propiedades especificadas
-                filtered_element["attrs"] = [
-                    attr for attr in filtered_element["attrs"]
-                    if attr.get("name") not in properties_to_remove
-                ]
+            # Siempre iniciamos con el ID
+            filtered_element = {"id": element.get("id")}
+            
+            # Obtener mapa de atributos actuales
+            attrs_list = element.get("attrs", [])
+            attrs_map = {a["name"]: a["value"] for a in attrs_list if "name" in a and "value" in a}
+            
+            # Mapear possible_element_type si está fuera (compatibilidad)
+            if "possible_element_type" in element:
+                attrs_map["possible_element_type"] = element["possible_element_type"]
+
+            if mode == "executor":
+                # Seguir el orden estricto de la lista de ejecutor
+                for attr_name in executor_order:
+                    if attr_name in attrs_map:
+                        filtered_element[attr_name] = attrs_map[attr_name]
+            
+            elif mode == "inspector":
+                # Seguir el orden estricto de la lista de inspector
+                # Para Inspector, introducimos 'text' o 'hint' antes de los flags
+                
+                # 1. Atributos iniciales
+                for attr_name in ["possible_element_type", "xpath"]:
+                    if attr_name in attrs_map:
+                        filtered_element[attr_name] = attrs_map[attr_name]
+                
+                # 2. Lógica especial: text o hint (prioridad text)
+                text_val = attrs_map.get("text")
+                hint_val = attrs_map.get("hint")
+                if text_val:
+                    filtered_element["text"] = text_val
+                elif hint_val:
+                    filtered_element["hint"] = hint_val
+                
+                # 3. Atributos finales
+                for attr_name in ["focused", "checked", "password"]:
+                    if attr_name in attrs_map:
+                        filtered_element[attr_name] = attrs_map[attr_name]
+
             filtered_elements.append(filtered_element)
         
         return filtered_elements
@@ -469,8 +501,7 @@ class QAIV2Orchestrator:
         )
         if context.previous_step:
             parts.append(f"Paso anterior: {context.previous_step}")
-        if context.next_step:
-            parts.append(f"Próximo paso: {context.next_step}")
+        # Se elimina next_step del contexto del Ejecutor para evitar alucinaciones futuras
         parts.append("")
 
         # ------------------------------------------------------------------
@@ -532,9 +563,8 @@ class QAIV2Orchestrator:
             parts.append("  (No hay elementos interactuables visibles)")
         else:
             # Filtrar propiedades antes de convertir a TOON (reduce tokens)
-            # Para deshabilitar el filtro, comentar la siguiente línea y usar ui_elements directamente
-            filtered_elements = self._filter_ui_elements_for_toon(ui_elements)
-            # filtered_elements = ui_elements  # Descomentar para deshabilitar filtro
+            # Usar modo "executor" para la decisión de acción
+            filtered_elements = self._filter_ui_elements_for_toon(ui_elements, mode="executor")
             
             toon_options = {
                 "delimiter": "|",
@@ -547,7 +577,7 @@ class QAIV2Orchestrator:
             )
 
         context_str = "\n".join(parts)
-        logger.info(f"AI_ORCHESTRATOR: Contexto generado: \n\n{context_str}")
+        logger.info(f"[EXECUTOR]: Contexto generado: \n\n{context_str}")
 
         return context_str
 
@@ -668,7 +698,7 @@ class QAIV2Orchestrator:
             return None
 
         providers_tried = [self.provider]
-        logger.warning(f"AI_ORCHESTRATOR FALLBACK: Proveedor primario '{self.provider}' falló. Intentando fallback...")
+        logger.warning(f"  ORCHESTRATOR FALLBACK: Proveedor primario '{self.provider}' falló. Intentando fallback...")
 
         for fallback_provider in Config.AI_FALLBACK_PROVIDERS:
             # Saltar proveedores ya intentados o no disponibles
@@ -678,7 +708,7 @@ class QAIV2Orchestrator:
                 continue
 
             providers_tried.append(fallback_provider)
-            logger.info(f"AI_ORCHESTRATOR FALLBACK: Intentando con '{fallback_provider}'...")
+            logger.info(f"  ORCHESTRATOR FALLBACK: Intentando con '{fallback_provider}'...")
 
             # Guardar estado original
             original_client = self.client
@@ -808,8 +838,8 @@ class QAIV2Orchestrator:
             {
                 "type": "function",
                 "function": {
-                    "name": "scroll",
-                    "description": "Hace scroll en la pantalla para ver más contenido. Útil cuando no encuentras el elemento que buscas.",
+                    "name": "scroll_screen",
+                    "description": "Hace scroll a nivel de PANTALLA completa (up/down). IMPORTANTE: NO afecta elementos individuales como SeekBars o listas. Para scrollear dentro de un elemento, usa scroll_in_element.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -820,6 +850,40 @@ class QAIV2Orchestrator:
                             }
                         },
                         "required": ["direction"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "scroll_in_element",
+                    "description": "Hace scroll DENTRO de un elemento específico (SeekBar, lista, contenedor scrollable). Usa esto para ajustar valores en date pickers o scrollear listas. NO uses touch_element_by_id en SeekBars - usa esta herramienta.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "element_id": {
+                                "type": "integer",
+                                "description": "ID del elemento scrollable (SeekBar, lista, etc.)",
+                            },
+                            "direction": {
+                                "type": "string",
+                                "enum": ["up", "down"],
+                                "description": "Dirección lógica del scroll: 'down' = reducir valor/bajar (ej: 2026→2025 en SeekBar de año), 'up' = aumentar valor/subir (ej: 2024→2025)",
+                            },
+                            "scroll_count": {
+                                "type": "integer",
+                                "description": "Número de swipes a ejecutar (default: 1). Útil para ajustes grandes en SeekBars.",
+                                "minimum": 1,
+                                "maximum": 20,
+                            },
+                            "item_multiplier": {
+                                "type": "integer",
+                                "description": "Número de elementos a mover por cada swipe (1-5, default: 1). 1 mueve aproximadamente 1 año/mes/día, 2 mueve 2 elementos, etc.",
+                                "minimum": 1,
+                                "maximum": 5,
+                            }
+                        },
+                        "required": ["element_id", "direction"],
                     },
                 },
             },
@@ -957,16 +1021,14 @@ class QAIV2Orchestrator:
         Returns:
             Respuesta de la IA
         """
-        logger.debug("AI_ORCHESTRATOR [OpenAI]: Preparando llamada a API...")
+        logger.debug("  ORCHESTRATOR [OpenAI]: Preparando llamada...")
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": context},
         ]
         
-        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Modelo: {self.model}")
-        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del system prompt: {len(SYSTEM_PROMPT)} chars")
-        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Longitud del contexto: {len(context)} chars")
+        logger.debug(f"[EXECUTOR] [OpenAI]: Modelo: {self.model} | System: {len(SYSTEM_PROMPT)} chars | Context: {len(context)} chars")
 
         # Reintentos configurables via Config (AI_API_MAX_RETRIES, AI_API_RETRY_DELAY, AI_API_TIMEOUT)
         max_retries = Config.AI_API_MAX_RETRIES
@@ -977,10 +1039,10 @@ class QAIV2Orchestrator:
         for attempt in range(1, max_retries + 2):  # +2 porque range excluye el último y queremos max_retries reintentos
             try:
                 if attempt > 1:
-                    logger.info(f"AI_ORCHESTRATOR [OpenAI]: Reintento {attempt - 1}/{max_retries}...")
+                    logger.info("  ORCHESTRATOR [OpenAI]: Reintentando...")
                     time.sleep(retry_delay)
 
-                logger.debug("AI_ORCHESTRATOR [OpenAI]: Enviando request...")
+                logger.debug("  ORCHESTRATOR [OpenAI]: Enviando request...")
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
@@ -990,21 +1052,20 @@ class QAIV2Orchestrator:
                     store=True,  # Habilita almacenamiento en OpenAI Platform (logs/traces)
                     timeout=timeout,
                 )
-                logger.debug("AI_ORCHESTRATOR [OpenAI]: ✓ Response recibido")
+                logger.debug("  ORCHESTRATOR [OpenAI]: ✓ Response recibido")
                 
                 # Si llegamos aquí, la llamada fue exitosa
                 break
                 
             except Exception as e:
                 last_error = e
-                logger.warning(f"AI_ORCHESTRATOR [OpenAI] WARNING: Intento {attempt}/{max_retries + 1} falló")
-                logger.warning(f"AI_ORCHESTRATOR [OpenAI] WARNING: {type(e).__name__}: {str(e)}")
+                logger.warning(f"  ORCHESTRATOR [OpenAI] WARNING: {type(e).__name__}: {str(e)}")
 
                 # Verificar si es un error recuperable
                 is_retryable = self._is_retryable_error(e)
                 if is_retryable:
                     if attempt < max_retries + 1:
-                        logger.info(f"AI_ORCHESTRATOR [OpenAI]: Error recuperable detectado (timeout/red/SSL). Reintentando... (intento {attempt}/{max_retries})")
+                        logger.info(f"  ORCHESTRATOR [OpenAI]: Error recuperable. Reintentando...")
                         # El sleep se ejecuta al inicio del siguiente intento (cuando attempt > 1)
                         continue
                     else:
@@ -1035,9 +1096,8 @@ class QAIV2Orchestrator:
         message = response.choices[0].message
         
         # Log detalles de la respuesta
-        logger.debug(f"AI_ORCHESTRATOR [OpenAI]: finish_reason: {response.choices[0].finish_reason}")
         if hasattr(response, 'usage') and response.usage:
-            logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Tokens - prompt: {response.usage.prompt_tokens}, "
+            logger.debug(f"  ORCHESTRATOR [OpenAI]: Tokens - prompt: {response.usage.prompt_tokens}, "
                         f"completion: {response.usage.completion_tokens}, "
                         f"total: {response.usage.total_tokens}")
             self._call_stats["total_tokens_used"] += response.usage.total_tokens
@@ -1054,7 +1114,7 @@ class QAIV2Orchestrator:
         }
 
         if message.tool_calls:
-            logger.debug(f"AI_ORCHESTRATOR [OpenAI]: {len(message.tool_calls)} tool call(s) recibidas")
+            logger.debug(f"  ORCHESTRATOR [OpenAI]: {len(message.tool_calls)} tool call(s)")
             for tool_call in message.tool_calls:
                 try:
                     parsed_args = json.loads(tool_call.function.arguments)
@@ -1063,14 +1123,12 @@ class QAIV2Orchestrator:
                         "name": tool_call.function.name,
                         "arguments": parsed_args,
                     })
-                    logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Tool call: {tool_call.function.name}({parsed_args})")
+                    logger.debug(f"  ORCHESTRATOR [OpenAI]: Tool: {tool_call.function.name}({parsed_args})")
                 except json.JSONDecodeError as je:
-                    logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: No se pudo parsear arguments JSON")
-                    logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: Raw arguments: {tool_call.function.arguments}")
-                    logger.error(f"AI_ORCHESTRATOR [OpenAI] ERROR: JSONDecodeError: {je}")
+                    logger.error(f"  ORCHESTRATOR [OpenAI] ERROR: JSON invalid: {je}")
                     raise ValueError(f"Invalid JSON in tool call arguments: {tool_call.function.arguments}")
         else:
-            logger.debug(f"AI_ORCHESTRATOR [OpenAI]: Sin tool calls. Mensaje: {message.content}")
+            logger.debug(f"  ORCHESTRATOR [OpenAI]: No tool calls.")
 
         return result
 
@@ -1086,7 +1144,7 @@ class QAIV2Orchestrator:
         Returns:
             Respuesta de la IA
         """
-        logger.debug("AI_ORCHESTRATOR [Anthropic]: Preparando llamada a API...")
+        logger.debug("  ORCHESTRATOR [Anthropic]: Preparando llamada...")
 
         # Convertir herramientas al formato de Anthropic
         logger.debug("AI_ORCHESTRATOR [Anthropic]: Convirtiendo herramientas al formato Anthropic...")
@@ -1099,9 +1157,7 @@ class QAIV2Orchestrator:
             })
         logger.debug(f"AI_ORCHESTRATOR [Anthropic]: {len(anthropic_tools)} herramientas configuradas")
         
-        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Modelo: {self.model}")
-        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del system prompt: {len(SYSTEM_PROMPT)} chars")
-        logger.debug(f"AI_ORCHESTRATOR [Anthropic]: Longitud del contexto: {len(context)} chars")
+        logger.debug(f"  ORCHESTRATOR [Anthropic]: Modelo: {self.model} | System: {len(SYSTEM_PROMPT)} chars | Context: {len(context)} chars")
 
         # Reintentos configurables via Config
         max_retries = Config.AI_API_MAX_RETRIES
@@ -1115,7 +1171,7 @@ class QAIV2Orchestrator:
                     logger.info(f"AI_ORCHESTRATOR [Anthropic]: Reintento {attempt - 1}/{max_retries}...")
                     time.sleep(retry_delay)
 
-                logger.debug("AI_ORCHESTRATOR [Anthropic]: Enviando request...")
+                logger.debug("  ORCHESTRATOR [Anthropic]: Enviando request...")
                 message = self.client.messages.create(
                     model=self.model,
                     max_tokens=1024,
@@ -1126,28 +1182,26 @@ class QAIV2Orchestrator:
                     tools=anthropic_tools,
                     timeout=timeout,
                 )
-                logger.debug("AI_ORCHESTRATOR [Anthropic]: ✓ Response recibido")
+                logger.debug("  ORCHESTRATOR [Anthropic]: ✓ Response recibido")
 
                 # Si llegamos aquí, la llamada fue exitosa
                 break
-
             except Exception as e:
                 last_error = e
-                logger.warning(f"AI_ORCHESTRATOR [Anthropic] WARNING: Intento {attempt}/{max_retries + 1} falló")
-                logger.warning(f"AI_ORCHESTRATOR [Anthropic] WARNING: {type(e).__name__}: {str(e)}")
+                logger.warning(f"  ORCHESTRATOR [Anthropic] WARNING: {type(e).__name__}: {str(e)}")
 
                 # Verificar si es un error recuperable
                 is_retryable = self._is_retryable_error(e)
                 if is_retryable:
                     if attempt < max_retries + 1:
-                        logger.info(f"AI_ORCHESTRATOR [Anthropic]: Error recuperable detectado (timeout/red/SSL). Reintentando... (intento {attempt}/{max_retries})")
+                        logger.info(f"  ORCHESTRATOR [Anthropic]: Error recuperable. Reintentando...")
                         # El sleep se ejecuta al inicio del siguiente intento (cuando attempt > 1)
                         continue
                     else:
-                        logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: Se agotaron los reintentos ({max_retries}) para error recuperable")
+                        logger.error(f"  ORCHESTRATOR [Anthropic] ERROR: Se agotaron los reintentos ({max_retries})")
                 else:
                     # Error no recuperable, fallar inmediatamente
-                    logger.error(f"AI_ORCHESTRATOR [Anthropic] ERROR: Error no recuperable detectado. No se reintentará.")
+                    logger.error(f"  ORCHESTRATOR [Anthropic] ERROR: Error no recuperable detectado.")
                     break
 
         # Si llegamos aquí y last_error no es None, todos los intentos fallaron
@@ -1222,6 +1276,7 @@ class QAIV2Orchestrator:
         last_action: Dict[str, Any],
         last_result: str,
         current_ui: List[Dict[str, Any]],
+        override_step_description: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Consulta al LLM para determinar si el paso está completo basándose
@@ -1234,6 +1289,7 @@ class QAIV2Orchestrator:
             last_action: Última acción ejecutada (tool_call)
             last_result: Resultado de la última acción (string)
             current_ui: Elementos UI actuales
+            override_step_description: Si se proporciona, se valida este texto en lugar del paso actual
             
         Returns:
             {
@@ -1241,13 +1297,11 @@ class QAIV2Orchestrator:
                 "reason": str
             }
         """
-        logger.info("=" * 70)
-        logger.info("AI_ORCHESTRATOR: Consultando completitud del paso")
-        logger.info("=" * 70)
+        logger.info("  ORCHESTRATOR [INSPECTOR]: Consultando completitud")
         
         self._call_stats["total_calls"] += 1
         call_number = self._call_stats["total_calls"]
-        logger.info(f"AI_ORCHESTRATOR: Llamada de completitud #{call_number}")
+        logger.info(f"AI_ORCHESTRATOR [INSPECTOR]: Llamada de completitud #{call_number}")
         
         # Construir contexto para completitud
         llm_context = self._build_completion_context(
@@ -1255,30 +1309,31 @@ class QAIV2Orchestrator:
             last_action=last_action,
             last_result=last_result,
             current_ui=current_ui,
+            override_step_description=override_step_description
         )
         
         # Llamar al LLM según el proveedor (sin tools, solo texto)
         start_time = time.time()
         try:
             if self.provider == "openai":
-                logger.info(f"AI_ORCHESTRATOR: Llamando a OpenAI para completitud ({self.model})...")
+                logger.info(f"[INSPECTOR]: Llamando a OpenAI ({self.model})...")
                 result = self._call_openai_completion(llm_context)
             elif self.provider == "deepseek":
-                logger.info(f"AI_ORCHESTRATOR: Llamando a DeepSeek para completitud ({self.model})...")
+                logger.info(f"[INSPECTOR]: Llamando a DeepSeek ({self.model})...")
                 result = self._call_openai_completion(llm_context)
             else:  # anthropic
-                logger.info(f"AI_ORCHESTRATOR: Llamando a Anthropic para completitud ({self.model})...")
+                logger.info(f"[INSPECTOR]: Llamando a Anthropic ({self.model})...")
                 result = self._call_anthropic_completion(llm_context)
             
             elapsed_ms = int((time.time() - start_time) * 1000)
             self._call_stats["successful_calls"] += 1
             self._call_stats["total_time_ms"] += elapsed_ms
             
-            logger.info(f"AI_ORCHESTRATOR: ✓ Respuesta de completitud recibida en {elapsed_ms}ms")
+            logger.info(f"[INSPECTOR]: ✓ Decisión recibida en {elapsed_ms}ms")
             
-            # Parsear respuesta TOON
+            # Parsear respuesta JSON
             parsed = self._parse_completion_response(result)
-            logger.info(f"AI_ORCHESTRATOR: step_completed={parsed.get('step_completed')}")
+            logger.info(f"[INSPECTOR]: completed={parsed.get('step_completed')} | reason={parsed.get('reason')}")
             
             return parsed
             
@@ -1312,6 +1367,7 @@ class QAIV2Orchestrator:
         last_action: Dict[str, Any],
         last_result: str,
         current_ui: List[Dict[str, Any]],
+        override_step_description: Optional[str] = None
     ) -> str:
         """
         Construye contexto para consulta de completitud.
@@ -1339,31 +1395,42 @@ class QAIV2Orchestrator:
             parts.append("  (Sin acciones previas)")
         parts.append("")
         
-        # Última acción y resultado (similar formato al historial)
+        # Última acción (V2)
         parts.append("### Última acción ejecutada")
+        
+        # Validar si hay información de la última acción
+        action_name = last_action.get('name', 'N/A') if last_action else 'N/A'
+        action_args = last_action.get('arguments', {}) if last_action else {}
+        
         last_action_entry = {
-            "action": f"{last_action['name']}({last_action['arguments']})",
-            "result": last_result,
+            "action": f"{action_name}({action_args})",
+            "result": last_result if last_result else "N/A",
         }
         try:
             last_action_toon = toon_encode([last_action_entry], {"delimiter": "\t"})
             parts.append(last_action_toon)
         except Exception as e:
-            logger.warning("AI_ORCHESTRATOR: No se pudo convertir última acción a TOON: %s", e)
-            parts.append(f"  Acción: {last_action['name']}({last_action['arguments']})")
+            logger.warning("[INSPECTOR]: No se pudo convertir última acción a TOON: %s", e)
+            parts.append(f"  Acción: {action_name}({action_args})")
             parts.append(f"  Resultado: {last_result}")
         parts.append("")
         
         # Paso actual y siguiente
-        parts.append(f"## Paso actual: {context.current_step}")
-        if context.next_step:
-            parts.append(f"### Próximo paso: {context.next_step}")
+        # Paso a verificar (actual o override)
+        target_step = override_step_description if override_step_description else context.current_step
+        parts.append(f"## Objetivo a verificar: {target_step}")
+        
+        # NOTA: Este método _build_completion_context es usado EXCLUSIVAMENTE por el Inspector (decide_step_completion)
+        # Por lo tanto, SIEMPRE incluimos el next_step para permitir la capacidad de "Adelantado" (Cascading)
+        if not override_step_description and context.next_step:
+            parts.append(f"### Próximo paso en el plan: {context.next_step}")
         parts.append("")
         
         # Elementos disponibles (TOON)
         parts.append("### Elementos disponibles en la pantalla")
         if current_ui:
-            filtered_elements = self._filter_ui_elements_for_toon(current_ui)
+            # Usar modo "inspector" para la consulta de completitud
+            filtered_elements = self._filter_ui_elements_for_toon(current_ui, mode="inspector")
             try:
                 elements_toon = toon_encode(filtered_elements, {"delimiter": "|"})
                 parts.append(elements_toon)
@@ -1383,70 +1450,56 @@ class QAIV2Orchestrator:
     
     def _parse_completion_response(self, response_text: str) -> Dict[str, Any]:
         """
-        Parsea respuesta TOON del LLM para completitud.
-        
-        Formato esperado:
-        [1]{step_completed|reason}:
-          0|true|"Explicación breve"
+        Parsea la respuesta del LLM para determinar si el paso está completo.
+        Prioriza JSON.
         """
+        # 1. Intentar parsear como JSON directo
         try:
-            from toon_format import decode as toon_decode
-            
-            # Buscar bloque TOON en la respuesta
-            lines = response_text.split('\n')
-            toon_start = None
-            for i, line in enumerate(lines):
-                if line.strip().startswith('[') and '{' in line and 'step_completed' in line:
-                    toon_start = i
-                    break
-            
-            if toon_start is None:
-                logger.warning("AI_ORCHESTRATOR: No se encontró bloque TOON en respuesta")
-                # Intentar parsear como texto simple
-                return self._parse_completion_response_fallback(response_text)
-            
-            # Extraer bloque TOON completo
-            toon_lines = []
-            for i in range(toon_start, len(lines)):
-                toon_lines.append(lines[i])
-                if i > toon_start and lines[i].strip() and not lines[i].strip()[0].isdigit() and '|' not in lines[i]:
-                    break
-            
-            toon_block = '\n'.join(toon_lines)
-            
-            # Decodificar TOON
-            decoded = toon_decode(toon_block)
-            if decoded and len(decoded) > 0:
-                row = decoded[0]
-                step_completed = str(row.get('step_completed', 'false')).lower() == 'true'
-                reason = row.get('reason', 'No reason provided')
-                # Remover comillas si las hay
-                if isinstance(reason, str) and reason.startswith('"') and reason.endswith('"'):
-                    reason = reason[1:-1]
-                
+            import json
+            data = json.loads(response_text)
+            return {
+                "step_completed": data.get("step_completed", False),
+                "reason": data.get("reason", "No reason provided")
+            }
+        except:
+            pass
+
+        # 2. Buscar bloque JSON con regex
+        try:
+            import re
+            import json
+            match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if match:
+                data = json.loads(match.group())
                 return {
-                    "step_completed": step_completed,
-                    "reason": reason
+                    "step_completed": data.get("step_completed", False),
+                    "reason": data.get("reason", "No reason provided")
                 }
-            else:
-                return self._parse_completion_response_fallback(response_text)
-                
-        except Exception as e:
-            logger.warning(f"AI_ORCHESTRATOR: Error parseando respuesta TOON: {e}")
-            return self._parse_completion_response_fallback(response_text)
+        except:
+            pass
+
+        # 3. Fallback a parseo de texto simple
+        return self._parse_completion_response_fallback(response_text)
     
     def _parse_completion_response_fallback(self, response_text: str) -> Dict[str, Any]:
         """
         Fallback parser para respuestas que no están en formato TOON.
-        Intenta extraer información del texto.
+        Intenta extraer información del texto de forma conservadora.
         """
         response_lower = response_text.lower()
         
-        step_completed = "completado" in response_lower or "completo" in response_lower or "true" in response_lower
+        # Solo marcar como completado si hay una confirmación explícita y positiva
+        # Evitamos 'completar' si la IA está explicando por qué NO está completo
+        step_completed = False
+        if any(marker in response_lower for marker in ["step_completed: true", "step_completed|true", "true|", "|true"]):
+            step_completed = True
+        elif ("completado" in response_lower or "completo" in response_lower) and "no " not in response_lower:
+             # Heurística simple: 'completo' sin un 'no' cerca
+             step_completed = True
         
         return {
             "step_completed": step_completed,
-            "reason": response_text[:200]  # Primeros 200 chars como razón
+            "reason": response_text[:200]
         }
     
     def _call_openai_completion(self, context: str) -> str:
@@ -1456,19 +1509,44 @@ class QAIV2Orchestrator:
         """
         COMPLETION_SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional.
 
-INTERPRETACIÓN DE RESULTADOS DE TOOLS:
-- "Success: ..." indica que la acción se ejecutó exitosamente
-- "Error: ..." indica que hubo un problema
-- Usa los resultados para determinar si el paso está completo
-- Si el resultado indica éxito y el paso pide esa acción → paso completo
+TU ROL COMO INSPECTOR:
+Tu misión es verificar si el paso actual se completó basándote en el resultado de la última tool y la UI actual.
 
-RESPUESTA EN FORMATO TOON:
-Responde con un bloque TOON con la siguiente estructura:
-[1]{step_completed|reason}:
-  0|true|"Explicación breve"
+TU ROL COMO ADELANTADO (CASCADING):
+Si ves que el paso actual está completo Y que el "Próximo paso en el plan" TAMBIÉN parece estarlo basándote en la UI actual, indícalo en tu razón pero marca step_completed=true para el que estás verificando ahora. El runner te consultará de nuevo para el siguiente.
 
-- step_completed: "true" o "false"
-- reason: Texto explicativo breve entre comillas"""
+FORMATO DE ELEMENTOS (TOON):
+Los atributos están optimizados para la VERIFICACIÓN:
+- "id": ID del elemento
+- "possible_element_type": Tipo de widget (input, button, etc.)
+- "xpath": Ubicación técnica
+- "text" o "hint": Valor actual visible (clave para verificar estados)
+- "focused": "true" si tiene el foco actual
+- "checked": "true" si está marcado
+- "password": "true" si es oculto
+
+CRITERIOS DE COMPLETITUD:
+1. Acciones de Navegación/Click:
+   - Si la tool fue touch_element_by_id o activate_app y devolvió "Success", y la UI cambió a una pantalla que coincide con el objetivo, el paso está COMPLETO.
+   
+2. Acciones de Verificación:
+   - Si el objetivo es "Verificar [texto]" o "Esperar a ver [pantalla]" y el elemento ya es visible en la UI actual, el paso está COMPLETO. ¡Sé proactivo! No pidas más acciones si ya se ve lo que buscamos.
+
+3. Acción Exitosa vs Paso Completo:
+   - Que una tool devuelva "Success" NO siempre significa que el paso esté completo si hay una meta lógica (ej: "año <= 2006"). DEBES verificar que el 'text' o 'hint' en la UI refleje ese estado.
+
+4. Verificación de UI:
+   - Si ves el valor deseado en el 'text' o 'hint' de un elemento, el paso está COMPLETO.
+
+RESPUESTA EN FORMATO JSON:
+Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
+{
+  "step_completed": true,
+  "reason": "Explicación breve citando evidencia visual o resultado de la acción"
+}
+
+- step_completed: boolean (true/false)
+- reason: string (breve explicación)"""
         
         messages = [
             {"role": "system", "content": COMPLETION_SYSTEM_PROMPT},
@@ -1492,10 +1570,11 @@ Responde con un bloque TOON con la siguiente estructura:
                     messages=messages,
                     temperature=0.2,
                     timeout=timeout,
+                    response_format={"type": "json_object"}
                 )
 
                 message = response.choices[0].message
-                return message.content or ""
+                return message.content or "{}"
 
             except Exception as e:
                 last_error = e
@@ -1530,19 +1609,33 @@ Responde con un bloque TOON con la siguiente estructura:
         """
         COMPLETION_SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional.
 
-INTERPRETACIÓN DE RESULTADOS DE TOOLS:
-- "Success: ..." indica que la acción se ejecutó exitosamente
-- "Error: ..." indica que hubo un problema
-- Usa los resultados para determinar si el paso está completo
-- Si el resultado indica éxito y el paso pide esa acción → paso completo
+TU ROL COMO INSPECTOR:
+Tu misión es verificar si el paso actual se completó basándote en el resultado de la última tool y la UI actual.
 
-RESPUESTA EN FORMATO TOON:
-Responde con un bloque TOON con la siguiente estructura:
-[1]{step_completed|reason}:
-  0|true|"Explicación breve"
+FORMATO DE ELEMENTOS (TOON):
+Los atributos están optimizados para la VERIFICACIÓN:
+- "id": ID del elemento
+- "possible_element_type": Tipo de widget (input, button, etc.)
+- "xpath": Ubicación técnica
+- "text" o "hint": Valor actual visible
+- "focused": "true" si tiene el foco actual
+- "checked": "true" si está marcado
+- "password": "true" si es oculto
 
-- step_completed: "true" o "false"
-- reason: Texto explicativo breve entre comillas"""
+CRITERIOS DE COMPLETITUD:
+1. Verificación de UI:
+   - Verifica que el resultado esperado aparezca en los atributos 'text' o 'hint'.
+   - Si el paso pide un estado (ej: checked), verifícalo.
+
+RESPUESTA EN FORMATO JSON:
+Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
+{
+  "step_completed": true,
+  "reason": "Explicación breve citando evidencia visual o resultado de la acción"
+}
+
+- step_completed: boolean (true/false)
+- reason: string (breve explicación)"""
 
         # Reintentos configurables via Config
         max_retries = Config.AI_API_MAX_RETRIES
