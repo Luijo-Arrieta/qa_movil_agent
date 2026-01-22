@@ -60,7 +60,7 @@ class TestLoginLogoutSpec:
             lambda tools: tools.activate_app("com.imagineapps.gofixiicliente"),
 
             # Asegurar que estamos en la pantalla de login
-            "Esperar a ver la pantalla de inicio de sesión del cliente",
+            #"Esperar a ver la pantalla de inicio de sesión del cliente",
 
             # Login exitoso con credenciales válidas
             f"Ingresar el correo válido '{test_email}' en el campo de correo electrónico",

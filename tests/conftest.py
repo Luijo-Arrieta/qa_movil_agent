@@ -124,6 +124,9 @@ logging.basicConfig(
 logging.getLogger("selenium.webdriver.remote.remote_connection").setLevel(logging.WARNING)
 logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 
+# Silenciar logs verbosos del cliente OpenAI (requests/responses HTTP)
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+
 # Silenciar loggers de httpcore/httpx que intentan escribir después del cierre
 # Estos loggers causan errores cuando intentan escribir después de que pytest cierra los handlers
 logging.getLogger("httpcore").setLevel(logging.WARNING)

@@ -347,10 +347,10 @@ class QAIV2Orchestrator:
         logger.debug(f"[EXECUTOR]: UI Elements: {len(ui_elements)} | History: {len(context.action_history)}")
         
         if not ui_elements:
-            logger.warning("AI_ORCHESTRATOR WARNING: No hay elementos UI para analizar")
+            logger.warning("[EXECUTOR] WARNING: No hay elementos UI para analizar")
         
         # Preparar contexto para el LLM (texto TOON derivado de StepContext + UI)
-        logger.debug("AI_ORCHESTRATOR: Construyendo contexto para el LLM...")
+        logger.debug("[EXECUTOR]: Construyendo contexto para el LLM...")
         llm_context = self._build_llm_context(context, ui_elements)
         
         # Log del contexto completo (para debug profundo)
@@ -360,41 +360,41 @@ class QAIV2Orchestrator:
 
         # Definir herramientas disponibles
         tools = self._get_tools_definition()
-        logger.debug(f"AI_ORCHESTRATOR: Herramientas disponibles: {[t['function']['name'] for t in tools]}")
+        logger.debug(f"[EXECUTOR]: Herramientas disponibles: {[t['function']['name'] for t in tools]}")
 
         # Llamar al LLM según el proveedor
         start_time = time.time()
         try:
             if self.provider == "openai":
-                logger.info(f"AI_ORCHESTRATOR: Llamando a OpenAI ({self.model})...")
+                logger.info(f"[EXECUTOR]: Llamando a OpenAI ({self.model})...")
                 result = self._call_openai(llm_context, tools)
             elif self.provider == "deepseek":
-                logger.info(f"AI_ORCHESTRATOR: Llamando a DeepSeek ({self.model})...")
+                logger.info(f"[EXECUTOR]: Llamando a DeepSeek ({self.model})...")
                 result = self._call_openai(llm_context, tools)  # DeepSeek usa la misma API que OpenAI
             else:  # anthropic
-                logger.info(f"AI_ORCHESTRATOR: Llamando a Anthropic ({self.model})...")
+                logger.info(f"[EXECUTOR]: Llamando a Anthropic ({self.model})...")
                 result = self._call_anthropic(llm_context, tools)
             
             elapsed_ms = int((time.time() - start_time) * 1000)
             self._call_stats["successful_calls"] += 1
             self._call_stats["total_time_ms"] += elapsed_ms
             
-            logger.info(f"AI_ORCHESTRATOR: ✓ Respuesta recibida en {elapsed_ms}ms")
+            logger.info(f"[EXECUTOR]: ✓ Respuesta recibida en {elapsed_ms}ms")
             
             # Log de la decisión
             if result.get("tool_calls"):
                 for tc in result["tool_calls"]:
-                    logger.info(f"AI_ORCHESTRATOR: Decisión -> {tc['name']}({tc['arguments']})")
+                    logger.info(f"[EXECUTOR]: Decisión -> {tc['name']}({tc['arguments']})")
             else:
-                logger.info(f"AI_ORCHESTRATOR: Decisión -> No tool call. Mensaje: {result.get('message', 'N/A')}")
+                logger.info(f"[EXECUTOR]: Decisión -> No tool call. Mensaje: {result.get('message', 'N/A')}")
             
             return result
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
             self._call_stats["failed_calls"] += 1
-            logger.error(f"AI_ORCHESTRATOR ERROR: Fallo en llamada #{call_number} después de {elapsed_ms}ms")
-            logger.error(f"AI_ORCHESTRATOR ERROR: {type(e).__name__}: {str(e)}")
+            logger.error(f"[EXECUTOR] ERROR: Fallo en llamada #{call_number} después de {elapsed_ms}ms")
+            logger.error(f"[EXECUTOR] ERROR: {type(e).__name__}: {str(e)}")
 
             # Intentar fallback si está habilitado
             fallback_result = self._try_fallback_provider(
@@ -404,11 +404,11 @@ class QAIV2Orchestrator:
                 primary_error=e,
             )
             if fallback_result is not None:
-                logger.info(f"AI_ORCHESTRATOR: ✓ Fallback exitoso con '{fallback_result.get('fallback_provider', 'unknown')}'")
+                logger.info(f"[EXECUTOR]: ✓ Fallback exitoso con '{fallback_result.get('fallback_provider', 'unknown')}'")
                 return fallback_result
 
             # No hay fallback o todos fallaron
-            logger.error(f"AI_ORCHESTRATOR ERROR: Traceback:\n{traceback.format_exc()}")
+            logger.error(f"[EXECUTOR] ERROR: Traceback:\n{traceback.format_exc()}")
             raise
 
     def _filter_ui_elements_for_toon(
@@ -428,7 +428,7 @@ class QAIV2Orchestrator:
         
         inspector_order = [
             "possible_element_type", "xpath", "focused", 
-            "checked", "password"
+            "checked", "clickable", "password"
         ]
         
         filtered_elements = []
@@ -468,7 +468,7 @@ class QAIV2Orchestrator:
                     filtered_element["hint"] = hint_val
                 
                 # 3. Atributos finales
-                for attr_name in ["focused", "checked", "password"]:
+                for attr_name in ["focused", "checked", "clickable", "password"]:
                     if attr_name in attrs_map:
                         filtered_element[attr_name] = attrs_map[attr_name]
 
@@ -1276,13 +1276,12 @@ class QAIV2Orchestrator:
         last_action: Dict[str, Any],
         last_result: str,
         current_ui: List[Dict[str, Any]],
-        override_step_description: Optional[str] = None
+        override_step_description: Optional[str] = None,
+        check_type: str = "current"  # "current" o "next"
     ) -> Dict[str, Any]:
         """
         Consulta al LLM para determinar si el paso está completo basándose
-        en el resultado de la última acción ejecutada.
-        
-        También detecta si el siguiente paso ya fue completado.
+        en el resultado de la última acción ejecutada o estado de UI.
         
         Args:
             context: Contexto del paso actual
@@ -1290,6 +1289,7 @@ class QAIV2Orchestrator:
             last_result: Resultado de la última acción (string)
             current_ui: Elementos UI actuales
             override_step_description: Si se proporciona, se valida este texto en lugar del paso actual
+            check_type: 'current' (paso activo) o 'next' (validación de cascada)
             
         Returns:
             {
@@ -1297,11 +1297,12 @@ class QAIV2Orchestrator:
                 "reason": str
             }
         """
-        logger.info("  ORCHESTRATOR [INSPECTOR]: Consultando completitud")
+        inspector_tag = f"[INSPECTOR:{check_type.upper()}]"
+        logger.info(f"{inspector_tag}: Consultando completitud")
         
         self._call_stats["total_calls"] += 1
         call_number = self._call_stats["total_calls"]
-        logger.info(f"AI_ORCHESTRATOR [INSPECTOR]: Llamada de completitud #{call_number}")
+        logger.info(f"{inspector_tag}: Llamada de completitud #{call_number}")
         
         # Construir contexto para completitud
         llm_context = self._build_completion_context(
@@ -1315,33 +1316,30 @@ class QAIV2Orchestrator:
         # Llamar al LLM según el proveedor (sin tools, solo texto)
         start_time = time.time()
         try:
-            if self.provider == "openai":
-                logger.info(f"[INSPECTOR]: Llamando a OpenAI ({self.model})...")
-                result = self._call_openai_completion(llm_context)
-            elif self.provider == "deepseek":
-                logger.info(f"[INSPECTOR]: Llamando a DeepSeek ({self.model})...")
-                result = self._call_openai_completion(llm_context)
+            logger.info(f"{inspector_tag}: Llamando a {self.provider} ({self.model})...")
+            
+            if self.provider in ["openai", "deepseek"]:
+                result = self._call_openai_completion(llm_context, check_type)
             else:  # anthropic
-                logger.info(f"[INSPECTOR]: Llamando a Anthropic ({self.model})...")
-                result = self._call_anthropic_completion(llm_context)
+                result = self._call_anthropic_completion(llm_context, check_type)
             
             elapsed_ms = int((time.time() - start_time) * 1000)
             self._call_stats["successful_calls"] += 1
             self._call_stats["total_time_ms"] += elapsed_ms
             
-            logger.info(f"[INSPECTOR]: ✓ Decisión recibida en {elapsed_ms}ms")
+            logger.info(f"{inspector_tag}: ✓ Decisión recibida en {elapsed_ms}ms")
             
             # Parsear respuesta JSON
             parsed = self._parse_completion_response(result)
-            logger.info(f"[INSPECTOR]: completed={parsed.get('step_completed')} | reason={parsed.get('reason')}")
+            logger.info(f"{inspector_tag}: completed={parsed.get('step_completed')} | reason={parsed.get('reason')}")
             
             return parsed
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
             self._call_stats["failed_calls"] += 1
-            logger.error(f"AI_ORCHESTRATOR ERROR: Fallo en llamada de completitud #{call_number} después de {elapsed_ms}ms")
-            logger.error(f"AI_ORCHESTRATOR ERROR: {type(e).__name__}: {str(e)}")
+            logger.error(f"{inspector_tag}: Fallo en llamada de completitud #{call_number} después de {elapsed_ms}ms")
+            logger.error(f"{inspector_tag}: {type(e).__name__}: {str(e)}")
 
             # Intentar fallback si está habilitado
             fallback_result = self._try_fallback_provider(
@@ -1350,12 +1348,12 @@ class QAIV2Orchestrator:
                 primary_error=e,
             )
             if fallback_result is not None and "raw_response" in fallback_result:
-                logger.info(f"AI_ORCHESTRATOR: ✓ Fallback de completitud exitoso con '{fallback_result.get('fallback_provider', 'unknown')}'")
+                logger.info(f"{inspector_tag}: ✓ Fallback de completitud exitoso con '{fallback_result.get('fallback_provider', 'unknown')}'")
                 parsed = self._parse_completion_response(fallback_result["raw_response"])
                 return parsed
 
             # No hay fallback o todos fallaron - retornar valores por defecto
-            logger.error(f"AI_ORCHESTRATOR ERROR: Traceback:\n{traceback.format_exc()}")
+            logger.error(f"{inspector_tag}: Traceback:\n{traceback.format_exc()}")
             return {
                 "step_completed": False,
                 "reason": f"Error checking completion: {str(e)}"
@@ -1384,7 +1382,7 @@ class QAIV2Orchestrator:
                 parts.append(history_toon)
             except Exception as e:
                 logger.warning(
-                    "AI_ORCHESTRATOR: No se pudo convertir action_history a TOON: %s", e
+                    "[INSPECTOR]: No se pudo convertir action_history a TOON: %s", e
                 )
                 for action in context.action_history:
                     if isinstance(action, dict):
@@ -1415,17 +1413,18 @@ class QAIV2Orchestrator:
             parts.append(f"  Resultado: {last_result}")
         parts.append("")
         
-        # Paso actual y siguiente
         # Paso a verificar (actual o override)
         target_step = override_step_description if override_step_description else context.current_step
         parts.append(f"## Objetivo a verificar: {target_step}")
-        
-        # NOTA: Este método _build_completion_context es usado EXCLUSIVAMENTE por el Inspector (decide_step_completion)
-        # Por lo tanto, SIEMPRE incluimos el next_step para permitir la capacidad de "Adelantado" (Cascading)
+
+        # Incluir next_step como contexto para INSPECTOR:CURRENT
+        # Esto ayuda a inferir si el paso actual se completó cuando la acción
+        # cambia la pantalla (ej: si el siguiente paso es "Verificar dashboard"
+        # y ya estamos en dashboard, el paso actual de "hacer login" está completo)
         if not override_step_description and context.next_step:
             parts.append(f"### Próximo paso en el plan: {context.next_step}")
         parts.append("")
-        
+
         # Elementos disponibles (TOON)
         parts.append("### Elementos disponibles en la pantalla")
         if current_ui:
@@ -1435,7 +1434,7 @@ class QAIV2Orchestrator:
                 elements_toon = toon_encode(filtered_elements, {"delimiter": "|"})
                 parts.append(elements_toon)
             except Exception as e:
-                logger.warning("AI_ORCHESTRATOR: No se pudo convertir elementos a TOON: %s", e)
+                logger.warning("[INSPECTOR]: No se pudo convertir elementos a TOON: %s", e)
                 parts.append(f"  ({len(current_ui)} elementos disponibles)")
         else:
             parts.append("  (No hay elementos interactuables visibles)")
@@ -1446,7 +1445,10 @@ class QAIV2Orchestrator:
         parts.append("1. ¿El paso actual está completo? (basándote en el resultado de la acción)")
         parts.append("2. ¿El siguiente paso ya fue completado? (por ejemplo, si presionaste un botón y llegaste a la pantalla del siguiente paso)")
         
-        return "\n".join(parts)
+        context_str = "\n".join(parts)
+        logger.info(f"[INSPECTOR]: Contexto generado: \n\n{context_str}")
+
+        return context_str
     
     def _parse_completion_response(self, response_text: str) -> Dict[str, Any]:
         """
@@ -1502,19 +1504,9 @@ class QAIV2Orchestrator:
             "reason": response_text[:200]
         }
     
-    def _call_openai_completion(self, context: str) -> str:
-        """
-        Llama a OpenAI para determinar completitud (sin tools, solo texto).
-        Implementa reintentos automáticos para timeouts y errores de red.
-        """
-        COMPLETION_SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional.
-
-TU ROL COMO INSPECTOR:
-Tu misión es verificar si el paso actual se completó basándote en el resultado de la última tool y la UI actual.
-
-TU ROL COMO ADELANTADO (CASCADING):
-Si ves que el paso actual está completo Y que el "Próximo paso en el plan" TAMBIÉN parece estarlo basándote en la UI actual, indícalo en tu razón pero marca step_completed=true para el que estás verificando ahora. El runner te consultará de nuevo para el siguiente.
-
+    def _get_completion_system_prompt(self, check_type: str) -> str:
+        """Retorna el prompt especializado según el tipo de verificación."""
+        base_format = """
 FORMATO DE ELEMENTOS (TOON):
 Los atributos están optimizados para la VERIFICACIÓN:
 - "id": ID del elemento
@@ -1525,19 +1517,6 @@ Los atributos están optimizados para la VERIFICACIÓN:
 - "checked": "true" si está marcado
 - "password": "true" si es oculto
 
-CRITERIOS DE COMPLETITUD:
-1. Acciones de Navegación/Click:
-   - Si la tool fue touch_element_by_id o activate_app y devolvió "Success", y la UI cambió a una pantalla que coincide con el objetivo, el paso está COMPLETO.
-   
-2. Acciones de Verificación:
-   - Si el objetivo es "Verificar [texto]" o "Esperar a ver [pantalla]" y el elemento ya es visible en la UI actual, el paso está COMPLETO. ¡Sé proactivo! No pidas más acciones si ya se ve lo que buscamos.
-
-3. Acción Exitosa vs Paso Completo:
-   - Que una tool devuelva "Success" NO siempre significa que el paso esté completo si hay una meta lógica (ej: "año <= 2006"). DEBES verificar que el 'text' o 'hint' en la UI refleje ese estado.
-
-4. Verificación de UI:
-   - Si ves el valor deseado en el 'text' o 'hint' de un elemento, el paso está COMPLETO.
-
 RESPUESTA EN FORMATO JSON:
 Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
 {
@@ -1546,10 +1525,62 @@ Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
 }
 
 - step_completed: boolean (true/false)
-- reason: string (breve explicación)"""
+- reason: string (breve explicación)
+"""
+
+        if check_type == "current":
+            return """Eres QAI (QA Agent V2).
+            
+ROL: INSPECTOR DE PASO ACTUAL
+Tu misión es VERIFICAR si el paso activo se ha completado exitosamente tras la ejecución de la última acción.
+
+CRITERIOS DE COMPLETITUD (PASO ACTUAL):
+1. Acción Exitosa + Resultado Visual:
+   - Si la acción (tool) reportó "Success" Y la UI cambió mostrando el resultado esperado (navegación, texto ingresado, etc.), el paso está COMPLETO.
+   
+2. Verificaciones (Asserts):
+   - Si el paso es "Verificar X" o "Esperar Y" y el elemento ya es visible en la UI actual, el paso está COMPLETO.
+
+3. Análisis de Evidencia:
+   - Usa el 'text', 'hint' y estructura de la UI para confirmar que lo que pide el paso ya ocurrió.
+
+4. AMBIGÜEDAD "CONFIRMAR":
+   - Si el paso dice "Confirmar X" (ej: "Confirmar cierre de sesión"), esto suele implicar una ACCIÓN (tocar "Sí/Aceptar").
+   - Si solo ves el diálogo abierto pero no has tocado la opción de confirmar en él, el paso NO está completo.
+""" + base_format
+
+        elif check_type == "next":
+            return """Eres QAI (QA Agent V2).
+
+ROL: INSPECTOR ADELANTADO (ANTICIPATOR)
+Tu misión es VERIFICAR si el *siguiente paso* del plan se completó AUTOMÁTICAMENTE como efecto secundario de acciones previas, O si ya estaba completo desde el inicio.
+NO se ha ejecutado ninguna acción específica para este paso aún. Solo estás mirando la UI resultante.
+
+CRITERIOS DE COMPLETITUD (PASO SIGUIENTE):
+1. Estado ya alcanzado:
+   - Si el paso dice "Verificar que se ve pantalla X" y YA estamos en pantalla X, retorna TRUE.
+   - Si el paso dice "Esperar a ver botón Y" y el botón Y YA es visible, retorna TRUE.
+
+2. Navegación implícita:
+   - Si una acción anterior ya nos llevó al destino de este paso, retorna TRUE.
+
+3. IMPORTANTE:
+   - Si el paso requiere una acción nueva ACTIVA (ej: "Ingresar texto", "Tocar botón"), entonces NO está completo. Retorna FALSE. Solo pasos de verificación/espera suelen autocompletarse.
+""" + base_format
+        
+        else:
+            return "Eres un asistente QA."
+
+
+    def _call_openai_completion(self, context: str, check_type: str = "current") -> str:
+        """
+        Llama a OpenAI para determinar completitud con prompt especializado.
+        Implementa reintentos automáticos para timeouts y errores de red.
+        """
+        system_prompt = self._get_completion_system_prompt(check_type)
         
         messages = [
-            {"role": "system", "content": COMPLETION_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": context},
         ]
 
@@ -1602,40 +1633,12 @@ Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
         # No debería llegar aquí, pero por si acaso
         raise RuntimeError("Error desconocido en _call_openai_completion")
     
-    def _call_anthropic_completion(self, context: str) -> str:
+    def _call_anthropic_completion(self, context: str, check_type: str = "current") -> str:
         """
-        Llama a Anthropic para determinar completitud (sin tools, solo texto).
+        Llama a Anthropic para determinar completitud con prompt especializado.
         Implementa reintentos automáticos para timeouts y errores de red.
         """
-        COMPLETION_SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional.
-
-TU ROL COMO INSPECTOR:
-Tu misión es verificar si el paso actual se completó basándote en el resultado de la última tool y la UI actual.
-
-FORMATO DE ELEMENTOS (TOON):
-Los atributos están optimizados para la VERIFICACIÓN:
-- "id": ID del elemento
-- "possible_element_type": Tipo de widget (input, button, etc.)
-- "xpath": Ubicación técnica
-- "text" o "hint": Valor actual visible
-- "focused": "true" si tiene el foco actual
-- "checked": "true" si está marcado
-- "password": "true" si es oculto
-
-CRITERIOS DE COMPLETITUD:
-1. Verificación de UI:
-   - Verifica que el resultado esperado aparezca en los atributos 'text' o 'hint'.
-   - Si el paso pide un estado (ej: checked), verifícalo.
-
-RESPUESTA EN FORMATO JSON:
-Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
-{
-  "step_completed": true,
-  "reason": "Explicación breve citando evidencia visual o resultado de la acción"
-}
-
-- step_completed: boolean (true/false)
-- reason: string (breve explicación)"""
+        system_prompt = self._get_completion_system_prompt(check_type)
 
         # Reintentos configurables via Config
         max_retries = Config.AI_API_MAX_RETRIES
@@ -1652,7 +1655,7 @@ Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
                 message = self.client.messages.create(
                     model=self.model,
                     max_tokens=512,
-                    system=COMPLETION_SYSTEM_PROMPT,
+                    system=system_prompt,
                     messages=[
                         {"role": "user", "content": context},
                     ],
