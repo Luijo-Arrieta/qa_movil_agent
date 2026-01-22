@@ -120,7 +120,8 @@ class QAIV2TestRunner:
         # Listar todos los pasos
         logger.info("TEST_RUNNER: Plan de prueba:")
         for idx, step in enumerate(test_plan, 1):
-            logger.info(f"  {idx}. {step}")
+            step_desc = step if isinstance(step, str) else f"[HumanAction] {step.__name__ if hasattr(step, '__name__') else 'lambda'}"
+            logger.info(f"  {idx}. {step_desc}")
         logger.info("")
 
         step_index = 0
@@ -129,23 +130,29 @@ class QAIV2TestRunner:
             display_index = step_index + 1
             step_start_time = datetime.now()
             
+            step_log_desc = step if isinstance(step, str) else f"[HumanAction] {step.__name__ if hasattr(step, '__name__') else 'lambda'}"
+
             logger.info("")
             logger.info("═" * 80)
-            logger.info(f"▶ PASO {display_index}/{len(test_plan)}: {step}")
+            logger.info(f"▶ PASO {display_index}/{len(test_plan)}: {step_log_desc}")
             logger.info("═" * 80)
             logger.info(f"TEST_RUNNER: Iniciando paso {display_index} a las {step_start_time.strftime('%H:%M:%S.%f')[:-3]}")
 
+            def _get_desc(s):
+                if s is None: return None
+                return s if isinstance(s, str) else f"[HumanAction] {s.__name__ if hasattr(s, '__name__') else 'lambda'}"
+
             # Calcular previous_step / next_step para el contexto del plan
-            previous_step = test_plan[step_index - 1] if step_index > 0 else None
-            next_step = test_plan[step_index + 1] if step_index < len(test_plan) - 1 else None
+            previous_step_desc = _get_desc(test_plan[step_index - 1]) if step_index > 0 else None
+            next_step_desc = _get_desc(test_plan[step_index + 1]) if step_index < len(test_plan) - 1 else None
 
             # Ejecutar el paso
             result = self._execute_step(
                 step=step,
                 step_index=display_index,
                 total_steps=len(test_plan),
-                previous_step=previous_step,
-                next_step=next_step,
+                previous_step=previous_step_desc,
+                next_step=next_step_desc,
             )
             
             step_elapsed = (datetime.now() - step_start_time).total_seconds()
@@ -247,9 +254,47 @@ class QAIV2TestRunner:
         except Exception as e:
             logger.warning(f"  RUNNER: No se pudo capturar screenshot final: {e}")
 
+    def _execute_human_action(self, action_callable: Any, step_index: int) -> Dict[str, Any]:
+        """
+        Ejecuta una acción humana directa (lambda) sin pasar por la IA.
+        """
+        action_name = action_callable.__name__ if hasattr(action_callable, "__name__") else "lambda"
+        logger.info(f"  RUNNER: Ejecutando HumanAction ({action_name})...")
+        
+        try:
+            # Ejecutar el callable pasando las herramientas
+            result = action_callable(self.agent_tools)
+            
+            # Formatear el resultado para el historial
+            result_str = str(result)
+            if isinstance(result, MiddlewareResult):
+                result_str = result.message
+            elif isinstance(result, dict) and "message" in result:
+                result_str = result["message"]
+
+            logger.info(f"  RUNNER: ✓ HumanAction completada: {result_str}")
+
+            # Inyectar en el historial para que la IA tenga contexto en el siguiente paso
+            self.action_history.append({
+                "index": len(self.action_history) + 1,
+                "action": f"HumanAction: {action_name}",
+                "result": result_str,
+                "success": True,
+                "is_human_action": True
+            })
+            
+            self._execution_stats["total_actions"] += 1
+            
+            return {"success": True, "steps_advanced": 1}
+            
+        except Exception as e:
+            logger.error(f"  RUNNER ERROR: Fallo en HumanAction: {e}")
+            logger.error(f"  Traceback:\n{traceback.format_exc()}")
+            return {"success": False}
+
     def _execute_step(
         self,
-        step: str,
+        step: Any,
         step_index: int,
         total_steps: int,
         previous_step: Optional[str],
@@ -273,6 +318,15 @@ class QAIV2TestRunner:
         Returns:
             Dict con {"success": bool, "steps_advanced": int}
         """
+        # Chequeo de HumanAction (Lambda/Callable)
+        if callable(step):
+            return self._execute_human_action(step, step_index)
+
+        # Si es un string, es un paso para la IA
+        if not isinstance(step, str):
+            logger.error(f"  RUNNER ERROR: Tipo de paso no soportado: {type(step)}")
+            return {"success": False}
+
         # Límites de acciones (desde Config para permitir personalización via .env)
         max_actions_per_step = Config.MAX_ACTIONS_PER_STEP
         max_repeated_action_attempts = Config.MAX_REPEATED_ACTION_ATTEMPTS

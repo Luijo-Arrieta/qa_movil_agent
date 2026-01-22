@@ -56,8 +56,8 @@ class TestLoginLogoutSpec:
 
         # Plan de prueba en lenguaje natural para el agente (happy-path)
         test_plan = [
-            # Apertura explícita de la app (no se abre por defecto)
-            "Abrir la app de cliente usando activate_app con el paquete 'com.imagineapps.gofixiicliente'",
+            # Apertura explícita de la app usando HumanAction (lambda) para mayor velocidad
+            lambda tools: tools.activate_app("com.imagineapps.gofixiicliente"),
 
             # Asegurar que estamos en la pantalla de login
             "Esperar a ver la pantalla de inicio de sesión del cliente",

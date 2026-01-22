@@ -64,7 +64,8 @@ class TestSignUpSpec:
 
         test_plan = [
             # Step 1: Open customer app and navigate to sign-up
-            "Abrir la app de cliente usando activate_app con el paquete 'com.imagineapps.gofixiicliente'",
+            # Step 1: Open customer app using HumanAction (lambda) for faster startup
+            lambda tools: tools.activate_app("com.imagineapps.gofixiicliente"),
             "Esperar a ver la pantalla de inicio de sesión",
             "Tocar el enlace o botón para crear una cuenta nueva",
 
@@ -132,7 +133,8 @@ class TestSignUpValidations:
 
         test_plan = [
             # Navigate to sign-up
-            "Abrir la app de cliente usando activate_app con el paquete 'com.imagineapps.gofixiicliente'",
+            # Navigate to sign-up using HumanAction (lambda) for faster startup
+            lambda tools: tools.activate_app("com.imagineapps.gofixiicliente"),
             "Esperar a ver la pantalla de inicio de sesión",
             "Tocar el enlace o botón para crear una cuenta nueva",
 
@@ -177,7 +179,8 @@ class TestSignUpValidations:
 
         test_plan = [
             # Navigate to sign-up
-            "Abrir la app de cliente usando activate_app con el paquete 'com.imagineapps.gofixiicliente'",
+            # Navigate to sign-up using HumanAction (lambda) for faster startup
+            lambda tools: tools.activate_app("com.imagineapps.gofixiicliente"),
             "Esperar a ver la pantalla de inicio de sesión",
             "Tocar el enlace o botón para crear una cuenta nueva",
 
@@ -216,7 +219,8 @@ class TestSignUpValidations:
 
         test_plan = [
             # Navigate to sign-up
-            "Abrir la app de cliente usando activate_app con el paquete 'com.imagineapps.gofixiicliente'",
+            # Navigate to sign-up using HumanAction (lambda) for faster startup
+            lambda tools: tools.activate_app("com.imagineapps.gofixiicliente"),
             "Esperar a ver la pantalla de inicio de sesión",
             "Tocar el enlace o botón para crear una cuenta nueva",
 
