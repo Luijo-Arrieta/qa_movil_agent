@@ -286,48 +286,56 @@ class TestScroll:
         mock_driver.session_id = "test-session"
         mock_driver.get_window_size.return_value = {"width": 1080, "height": 1920}
         mock_ui_parser = Mock(spec=UIParser)
-
+    
         skills = AppiumSkills(mock_driver, mock_ui_parser)
-        result = skills.scroll("down")
-
-        assert "Success" in result
+        result = skills.scroll_screen("down")
+    
+        assert isinstance(result, dict)
+        assert result["success"] is True
+        assert "Success" in result["message"]
         mock_driver.swipe.assert_called_once()
-
+    
     def test_scroll_up_success(self):
         """Test: Scroll up exitoso."""
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
         mock_driver.get_window_size.return_value = {"width": 1080, "height": 1920}
         mock_ui_parser = Mock(spec=UIParser)
-
+    
         skills = AppiumSkills(mock_driver, mock_ui_parser)
-        result = skills.scroll("up")
-
-        assert "Success" in result
-
+        result = skills.scroll_screen("up")
+    
+        assert isinstance(result, dict)
+        assert result["success"] is True
+        assert "Success" in result["message"]
+    
     def test_scroll_invalid_direction(self):
         """Test: Error con dirección inválida."""
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
         mock_ui_parser = Mock(spec=UIParser)
-
+    
         skills = AppiumSkills(mock_driver, mock_ui_parser)
-        result = skills.scroll("left")
-
-        assert "Error" in result
-        assert "left" in result
-
+        result = skills.scroll_screen("left")
+    
+        assert isinstance(result, dict)
+        assert result["success"] is False
+        assert "Error" in result["message"]
+        assert "left" in result["message"]
+    
     def test_scroll_driver_error(self):
         """Test: Error cuando driver falla."""
         mock_driver = Mock()
         mock_driver.session_id = "test-session"
         mock_driver.get_window_size.side_effect = Exception("Driver error")
         mock_ui_parser = Mock(spec=UIParser)
-
+    
         skills = AppiumSkills(mock_driver, mock_ui_parser)
-        result = skills.scroll("down")
-
-        assert "Error" in result
+        result = skills.scroll_screen("down")
+    
+        assert isinstance(result, dict)
+        assert result["success"] is False
+        assert "Error" in result["message"]
 
 
 class TestGoBack:

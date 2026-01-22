@@ -296,6 +296,7 @@ class QAIV2TestRunner:
             try:
                 # Loop agéntico: continúa hasta que la IA indique que el paso está completo
                 loop_iteration = 0
+                current_ui_elements = None
                 while actions_executed < max_actions_per_step:
                     loop_iteration += 1
                     logger.info("")
@@ -312,14 +313,23 @@ class QAIV2TestRunner:
                     # Retorna List[UIElement] o MiddlewareResult
                     phase_start = time.time()
                     try:
-                        parse_result = self.ui_parser.get_ui()
+                        # OPTIMIZACIÓN: Solo obtener UI si no la tenemos ya (cacheada del paso anterior o feedback de tool)
+                        if current_ui_elements is None:
+                            logger.info("  │ FASE 2: Obteniendo UI de la pantalla...")
+                            parse_result = self.ui_parser.get_ui()
+                        else:
+                            logger.info(f"  │ FASE 2: Usando UI cacheada ({len(current_ui_elements)} elementos)")
+                            parse_result = current_ui_elements
+                            
                         phase_time = int((time.time() - phase_start) * 1000)
                         
                         # El middleware retorna MiddlewareResult o List[UIElement]
                         if isinstance(parse_result, MiddlewareResult):
                             # Middleware denegó: app no permitida
                             ui_elements = []
+                            current_ui_elements = None # Forzar re-parse si hay denegación (?)
                             logger.warning(f"  │ ⚠️  Middleware denegado ({phase_time}ms)")
+                            # ... resto del código igual ...
                             logger.warning(f"  │ {parse_result.message}")
                             # Inyectar mensaje en action_history para que el agente lo vea
                             self.action_history.append({
@@ -384,13 +394,13 @@ class QAIV2TestRunner:
                             next_step=next_step,
                             previous_step=previous_step,
                             action_history=recent_actions,
-                            ui_elements=ui_elements,
+                            ui_elements=parse_result if isinstance(parse_result, list) else [],
                             app_states=app_states,
                         )
                         self.current_context = step_context
 
                         ai_decision = self.ai_orchestrator.decide_next_action(
-                            ui_elements=ui_elements,
+                            ui_elements=parse_result if isinstance(parse_result, list) else [],
                             context=step_context,
                         )
                         phase3_time = int((time.time() - phase3_start) * 1000)
@@ -481,10 +491,16 @@ class QAIV2TestRunner:
                             if isinstance(result_message, dict):
                                 result_ui_elements = result_message.get("ui_elements")
                                 result_message_clean = result_message.get("message", str(result_message))
-                                # Si hay UI en el resultado, actualizar ui_elements para el siguiente ciclo
+                                # Si hay UI en el resultado, actualizar current_ui_elements para el siguiente ciclo
                                 if result_ui_elements:
-                                    ui_elements = result_ui_elements
-                                    logger.debug(f"  │   ✓ UI actualizada desde resultado ({len(ui_elements)} elementos)")
+                                    current_ui_elements = result_ui_elements
+                                    logger.debug(f"  │   ✓ UI actualizada desde resultado ({len(current_ui_elements)} elementos)")
+                                else:
+                                    # Si la acción fue exitosa pero no nos dio UI, invalidamos cache
+                                    # para forzar get_ui() en la siguiente iteración si es necesario
+                                    if success:
+                                        logger.debug("  │   ⚠ Resultado sin UI, invalidando cache para próxima iteración")
+                                        current_ui_elements = None
                             
                             # V2: Registrar acción con resultado en historial (formato dict)
                             # NOTA: NO incluimos UI en el historial para evitar llenar el contexto
@@ -533,7 +549,7 @@ class QAIV2TestRunner:
                                 context=step_context,
                                 last_action=last_tool_call,
                                 last_result=last_result_message,
-                                current_ui=ui_elements
+                                current_ui=current_ui_elements or (parse_result if isinstance(parse_result, list) else [])
                             )
                             phase4_5_time = int((time.time() - phase4_5_start) * 1000)
                             logger.info(f"  │ FASE 4.5: ✓ Decisión de completitud recibida en {phase4_5_time}ms")
@@ -800,11 +816,11 @@ class QAIV2TestRunner:
                 element_id = tool_args.get("element_id")
                 direction = tool_args.get("direction", "down")
                 scroll_count = tool_args.get("scroll_count", 1)
-                scroll_multiplier = tool_args.get("scroll_multiplier", 0.2)
+                item_multiplier = tool_args.get("item_multiplier", 1)
                 if element_id is None:
                     logger.error(f"TEST_RUNNER ERROR: 'element_id' no presente en arguments: {tool_args}")
                     return (False, "Error: element_id missing")
-                result = self.agent_tools.scroll_in_element(element_id, direction, scroll_count, scroll_multiplier)
+                result = self.agent_tools.scroll_in_element(element_id, direction, scroll_count, item_multiplier)
 
             elif tool_name == "go_back":
                 result = self.agent_tools.go_back()

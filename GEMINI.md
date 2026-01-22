@@ -2,6 +2,11 @@
 
 This file provides guidance to Gemini CLI (gemini.ai/code) when working with code in this repository.
 
+## Comunication
+
+- Always respond to the user in Spanish.
+- Answer concisely.
+
 ## Project Overview
 
 AutoDroid-AI Agent: Autonomous AI agent for mobile testing on Android. It receives objectives and steps in natural language, analyzes the app's UI, and executes actions automatically without manually writing selectors.
@@ -24,6 +29,7 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 ```
 
 **Flow:**
+
 1. Test Runner gets `page_source` (XML) from Appium driver
 2. UIParser parses XML and extracts interactable elements with their real Android properties
 3. AI Orchestrator converts elements to **TOON format** (30-60% fewer tokens) and sends to LLM
@@ -31,6 +37,7 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 5. Agent Tools executes action via Appium using the XPath
 
 **Key Components:**
+
 - `src/ui_parser.py` - Transforms raw Appium XML into structured data with real Android properties for LLMs. Generates hierarchical XPaths similar to Appium Inspector (short, readable paths). Filters out large containers (>95% screen), containers with interactable children, and masked content-desc elements.
 - `src/agent_tools.py` - High-level Appium interactions (click, fill, scroll, assert, touch_out_element, get_confirmation_code)
 - `src/v2/ai_orchestrator.py` - LLM integration (OpenAI/Anthropic/DeepSeek) with function calling. Uses TOON format for token efficiency. **Note:** v2 is the current version.
@@ -44,6 +51,7 @@ The test runner implements an intelligent error handling system that distinguish
 ### Recoverable Errors (Will Retry)
 
 These errors are temporary and may resolve on retry:
+
 - `TimeoutException` - Temporary timeouts
 - `NoSuchElementException` - Element not found (may appear later)
 - `ElementNotInteractableException` - Element not interactable (state may change)
@@ -55,6 +63,7 @@ These errors are temporary and may resolve on retry:
 ### Non-Recoverable Errors (Fail Immediately)
 
 These errors indicate programming/configuration issues and won't be fixed by retrying:
+
 - `ValueError` - Invalid data or structure
 - `KeyError` - Missing dictionary key
 - `TypeError` - Incorrect types
@@ -69,6 +78,7 @@ These errors indicate programming/configuration issues and won't be fixed by ret
 ### Implementation
 
 The `_is_recoverable_error()` function in `src/test_runner.py` classifies errors automatically. When a non-recoverable error occurs, the test runner:
+
 1. Logs the error with full traceback
 2. Indicates it's a non-recoverable error
 3. Fails immediately without wasting time on retries
@@ -123,12 +133,14 @@ tests/
 ```
 
 **Naming Convention:**
+
 - `test_*.py` - Tests del proyecto (framework, componentes internos)
 - `spec_*.py` - Tests de usuario (especificaciones de funcionalidad de la app)
 
 ## Environment Setup
 
 Copy `.env.example` to `.env.local` and configure:
+
 - `AI_PROVIDER`: "openai" or "anthropic"
 - `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`
 - `ANDROID_APP_PATH`: Path to APK (recommended) OR `ANDROID_APP_PACKAGE` + `ANDROID_APP_ACTIVITY`
@@ -156,37 +168,44 @@ adb devices
 ## UIParser Output Format
 
 ### Internal Structure (JSON)
+
 UIParser returns elements with a consistent structure using `{id, attrs}`:
 
 ```json
 {
   "id": 0,
   "attrs": [
-    {"name": "content-desc", "value": "Submit button"},
-    {"name": "class", "value": "android.widget.Button"},
-    {"name": "xpath", "value": "//android.widget.Button[@content-desc=\"Submit button\"]"},
-    {"name": "bounds", "value": "[0,100][720,200]"},
-    {"name": "clickable", "value": "true"},
-    {"name": "enabled", "value": "true"},
-    {"name": "displayed", "value": "true"}
+    { "name": "content-desc", "value": "Submit button" },
+    { "name": "class", "value": "android.widget.Button" },
+    {
+      "name": "xpath",
+      "value": "//android.widget.Button[@content-desc=\"Submit button\"]"
+    },
+    { "name": "bounds", "value": "[0,100][720,200]" },
+    { "name": "clickable", "value": "true" },
+    { "name": "enabled", "value": "true" },
+    { "name": "displayed", "value": "true" }
   ]
 }
 ```
 
 **Why this structure?**
+
 - `attrs` is always a list of `{name, value}` objects (consistent schema)
 - Only non-empty attributes are included (except booleans)
 - Easy to extend without breaking structure
 
 **Inclusion Criteria (focusable="true" is REQUIRED):**
+
 - `clickable="true"` with useful info (text, content-desc, or resource-id)
 - `EditText` elements (inputs) - always included
 - `ImageView` + clickable (image buttons) - always included
 
 **Exclusion Rules:**
+
 - Elements covering >95% of the screen (full-screen overlays) - always excluded
 - Clickable containers that have interactable children (EditText or clickable ImageView) - excluded
-- Clickable elements with `content-desc` matching mask patterns (e.g., "**********") - excluded
+- Clickable elements with `content-desc` matching mask patterns (e.g., "****\*\*****") - excluded
 - Large containers (>80% screen) without clickable status or useful identifiers - excluded
 
 ### XPath Generation (Hierarchical)
@@ -194,27 +213,32 @@ UIParser returns elements with a consistent structure using `{id, attrs}`:
 UIParser generates **short, hierarchical XPaths** similar to Appium Inspector:
 
 **Strategy:**
+
 - When an element has a unique identifier (resource-id, content-desc, or text), the XPath "restarts" with `//` from that point
 - Elements without identifiers continue accumulating the path from their parent with `/`
 - This generates concise XPaths that match Appium Inspector's output
 
 **Example:**
+
 ```
 //android.view.View[@content-desc='Iniciar sesión']/android.view.View[2]/android.widget.EditText
 ```
 
 Instead of long paths from root:
+
 ```
 //hierarchy/android.widget.FrameLayout/.../android.view.View[@content-desc='Iniciar sesión']/android.view.View[2]/android.widget.EditText
 ```
 
 **XPath segment priority:**
+
 1. `resource-id` (most reliable): `tag[@resource-id='value']`
 2. `content-desc`: `tag[@content-desc='value']`
 3. `text`: `tag[@text='value']`
 4. Index (fallback): `tag[index]` (position among siblings of same type)
 
 ### TOON Format (for LLMs)
+
 For communication with LLMs, elements are flattened and converted to **TOON (Token-Oriented Object Notation)** format, reducing token consumption by 30-60%.
 
 ```toon
@@ -227,11 +251,13 @@ For communication with LLMs, elements are flattened and converted to **TOON (Tok
 **Note:** The `clickable` attribute is included in TOON format to help the LLM identify interactable elements.
 
 **Data Flow:**
+
 1. UIParser generates `{id, attrs: [{name, value}]}` internally with hierarchical XPaths
 2. AI Orchestrator flattens to `{id, content-desc, class, ...}` for TOON
 3. LLM receives TOON format with attributes as columns
 
 **Why TOON?**
+
 - Uses tabular format with headers, reducing repetition
 - Tab-separated values for maximum token efficiency
 - Maintains full data fidelity (lossless)
@@ -242,6 +268,7 @@ For communication with LLMs, elements are flattened and converted to **TOON (Tok
 The LLM can use these tools via function calling:
 
 ### UI Interaction Tools
+
 - `touch_element_by_id(element_id)` - Click element by ID
 - `touch_out_element(element_id, direction, distance_percent)` - Click outside a visible element to close popups/dialogs. Direction: "up", "down", "left", or "right". Distance: 50-100% of available space (50% minimum for effective popup closing). **Use this when a popup/dialog is blocking the view and you need to interact with the underlying screen.**
 - `fill_field_by_id(element_id, value)` - Type text in input by ID
@@ -250,13 +277,16 @@ The LLM can use these tools via function calling:
 - `assert_screen_contains(text)` - Verify text presence
 
 ### Multi-App Management Tools
+
 For tests requiring multiple apps (e.g., Customer ↔ Technical flows):
+
 - `activate_app(app_package)` - Open/bring app to foreground
 - `terminate_app(app_package)` - Close app completely
 - `switch_to_app(app_package)` - Switch to app, closing current one (clean state)
 - `switch_to_app_keep_background(app_package)` - Switch keeping current in background (fast round-trips)
 
 ### External Integration Tools
+
 - `get_confirmation_code(email)` - Gets confirmation code sent by email. Executes immediately (no initial wait). The webhook waits up to 30 seconds listening for incoming emails. Has a 35-second timeout. Returns format: "Success: Confirmation code obtained for EMAIL: CODE=1234" or error message if timeout occurs.
 
 **App States (Appium):**
@@ -297,12 +327,12 @@ from src.config import Config
 
 def test_login_flow_example(self, driver_setup):
     objective = "Realizar login en la aplicación con credenciales de prueba"
-    
+
     test_email = Config.TEST_USER_EMAIL
     test_password = Config.TEST_USER_PASSWORD
-    
+
     runner = AITestRunner(driver=driver_setup, objective=objective)
-    
+
     test_plan = [
         "Esperar a ver la pantalla de login",
         f"Ingresar usuario '{test_email}'",
@@ -310,7 +340,7 @@ def test_login_flow_example(self, driver_setup):
         "Tocar botón Ingresar",
         "Verifica que se inició la sesión",
     ]
-    
+
     success = runner.run_test_plan(test_plan)
     assert success, "El plan de prueba no se completó exitosamente"
 ```
@@ -320,18 +350,19 @@ def test_login_flow_example(self, driver_setup):
 ```python
 def test_simple_navigation_example(self, driver_setup):
     runner = AITestRunner(driver=driver_setup)
-    
+
     test_plan = [
         "Abrir el menú principal",
         "Seleccionar la opción 'Configuración'",
         "Verificar que se abra la pantalla de configuración",
     ]
-    
+
     success = runner.run_test_plan(test_plan)
     assert success, "La navegación no se completó exitosamente"
 ```
 
 **Key Benefits of AITestRunner:**
+
 - No need to manually parse UI or write XPath selectors
 - Natural language test plans are easy to read and maintain
 - Automatic retry logic handles transient errors

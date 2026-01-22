@@ -29,37 +29,30 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional. Tu objetivo es ejecutar pruebas en aplicaciones móviles Android.
 
 FORMATO DE ELEMENTOS (TOON):
-Los elementos se muestran en formato tabular TOON. Cada fila es un elemento con sus atributos.
+Los elementos se muestran en formato tabular TOON. Cada fila es un elemento con sus atributos optimizados para la ejecución.
 - "id": número único (USAR ESTE en las herramientas)
-- Los demás campos son atributos del elemento Android
+- "possible_element_type": Categoría lógica (input, button, slider, etc.)
+- "xpath": Selector jerárquico para Appium
+- "hint": Texto placeholder o sugerencia
+- "checked": "true" si está marcado (radio/checkbox)
+- "checkable": "true" si permite marca
+- "clickable": "true" si permite touch
+- "password": "true" si es campo oculto
 
 Ejemplo TOON:
-[2]{id	content-desc	class	xpath	clickable}:
-  0	Botón login	android.widget.Button	//android.widget.Button[@content-desc="Botón login"]	true
-  1	Campo email	android.widget.EditText	//android.widget.EditText[@content-desc="Campo email"]	true
-
-ATRIBUTOS IMPORTANTES PARA IDENTIFICAR ELEMENTOS:
-- "content-desc": Texto de accesibilidad (lo que describe el elemento)
-- "text": Texto visible en el elemento
-- "resource-id": ID del recurso Android
-- "class": Tipo de elemento (Button, EditText, View, etc.)
-- "hint": Placeholder en campos de texto
+[2]{id|possible_element_type|xpath|hint|clickable}:
+  0|button|//android.widget.Button[@content-desc="Login"]||true
+  1|input|//android.widget.EditText[@resource-id="email"]|correo@ejemplo.com|true
 
 IMPORTANTE - USO DE IDs:
 - USA el campo "id" del elemento en las herramientas
 - Ejemplo: touch_element_by_id(element_id=0), fill_field_by_id(element_id=1, value="texto")
-- NO confundas "id" con el atributo "resource-id" (son diferentes)
 
 TIPOS DE ELEMENTOS (possible_element_type):
 - "input": EditText - Usa fill_field_by_id(element_id, value) para escribir texto
 - "input_select": Input selector (date picker, dropdown) - Usa touch_element_by_id() para abrir selector
-  * Estos NO son editables con fill_field_by_id
-  * Debes tocar el elemento para abrir la interfaz del selector
-  * Ejemplos: date pickers (hint="21/01/2026"), dropdowns
 - "checkbox": CheckBox widget - Usa touch_element_by_id() para alternar estado checked/unchecked
 - "slider": SeekBar/Slider - Usa scroll_in_element(element_id, direction) para ajustar valor
-  * NO uses touch_element_by_id en sliders (no funciona)
-  * Ejemplo: SeekBar de año en date picker
 - "button": Botón clickable
 - "link": Link/texto clickable
 
@@ -426,38 +419,67 @@ class QAIV2Orchestrator:
             logger.error(f"AI_ORCHESTRATOR ERROR: Traceback:\n{traceback.format_exc()}")
             raise
 
-    def _filter_ui_elements_for_toon(self, ui_elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _filter_ui_elements_for_toon(
+        self, 
+        ui_elements: List[Dict[str, Any]], 
+        mode: str = "executor"
+    ) -> List[Dict[str, Any]]:
         """
-        Filtra propiedades de elementos UI antes de convertir a TOON.
-        
-        Elimina propiedades que no son necesarias para el LLM para reducir
-        el consumo de tokens. Actualmente elimina: bounds, clickable, enabled, displayed.
-        
-        Args:
-            ui_elements: Lista de elementos UI originales
-            
-        Returns:
-            Lista de elementos UI filtrados (sin las propiedades especificadas)
+        Filtra propiedades de elementos UI antes de convertir a TOON según el modo.
+        Preserva el orden exacto solicitado por el usuario.
         """
-        # Propiedades a eliminar antes de convertir a TOON
-        # Comentar/descomentar líneas para cambiar qué propiedades se eliminan
-        properties_to_remove = {
-            "bounds",      # Coordenadas de pantalla (no necesarias para identificación)
-            # "clickable", # Estado clickable - INCLUIDO: importante para que el LLM sepa qué elementos son clickables
-            "enabled",     # Estado habilitado (redundante)
-            "displayed",   # Estado visible (redundante, solo elementos visibles están en la lista)
-        }
+        # Definición de orden de atributos (Listas para preservar el orden)
+        executor_order = [
+            "possible_element_type", "xpath", "hint", 
+            "checked", "checkable", "clickable", "password"
+        ]
+        
+        inspector_order = [
+            "possible_element_type", "xpath", "focused", 
+            "checked", "password"
+        ]
         
         filtered_elements = []
         for element in ui_elements:
-            # Crear copia del elemento para no modificar el original
-            filtered_element = element.copy()
-            if "attrs" in filtered_element:
-                # Filtrar attrs eliminando las propiedades especificadas
-                filtered_element["attrs"] = [
-                    attr for attr in filtered_element["attrs"]
-                    if attr.get("name") not in properties_to_remove
-                ]
+            # Siempre iniciamos con el ID
+            filtered_element = {"id": element.get("id")}
+            
+            # Obtener mapa de atributos actuales
+            attrs_list = element.get("attrs", [])
+            attrs_map = {a["name"]: a["value"] for a in attrs_list if "name" in a and "value" in a}
+            
+            # Mapear possible_element_type si está fuera (compatibilidad)
+            if "possible_element_type" in element:
+                attrs_map["possible_element_type"] = element["possible_element_type"]
+
+            if mode == "executor":
+                # Seguir el orden estricto de la lista de ejecutor
+                for attr_name in executor_order:
+                    if attr_name in attrs_map:
+                        filtered_element[attr_name] = attrs_map[attr_name]
+            
+            elif mode == "inspector":
+                # Seguir el orden estricto de la lista de inspector
+                # Para Inspector, introducimos 'text' o 'hint' antes de los flags
+                
+                # 1. Atributos iniciales
+                for attr_name in ["possible_element_type", "xpath"]:
+                    if attr_name in attrs_map:
+                        filtered_element[attr_name] = attrs_map[attr_name]
+                
+                # 2. Lógica especial: text o hint (prioridad text)
+                text_val = attrs_map.get("text")
+                hint_val = attrs_map.get("hint")
+                if text_val:
+                    filtered_element["text"] = text_val
+                elif hint_val:
+                    filtered_element["hint"] = hint_val
+                
+                # 3. Atributos finales
+                for attr_name in ["focused", "checked", "password"]:
+                    if attr_name in attrs_map:
+                        filtered_element[attr_name] = attrs_map[attr_name]
+
             filtered_elements.append(filtered_element)
         
         return filtered_elements
@@ -550,9 +572,8 @@ class QAIV2Orchestrator:
             parts.append("  (No hay elementos interactuables visibles)")
         else:
             # Filtrar propiedades antes de convertir a TOON (reduce tokens)
-            # Para deshabilitar el filtro, comentar la siguiente línea y usar ui_elements directamente
-            filtered_elements = self._filter_ui_elements_for_toon(ui_elements)
-            # filtered_elements = ui_elements  # Descomentar para deshabilitar filtro
+            # Usar modo "executor" para la decisión de acción
+            filtered_elements = self._filter_ui_elements_for_toon(ui_elements, mode="executor")
             
             toon_options = {
                 "delimiter": "|",
@@ -864,11 +885,11 @@ class QAIV2Orchestrator:
                                 "minimum": 1,
                                 "maximum": 20,
                             },
-                            "scroll_multiplier": {
-                                "type": "number",
-                                "description": "Distancia del swipe (0.1-1.0, default: 0.2). Valores más pequeños = scroll más preciso.",
-                                "minimum": 0.1,
-                                "maximum": 1.0,
+                            "item_multiplier": {
+                                "type": "integer",
+                                "description": "Número de elementos a mover por cada swipe (1-5, default: 1). 1 mueve aproximadamente 1 año/mes/día, 2 mueve 2 elementos, etc.",
+                                "minimum": 1,
+                                "maximum": 5,
                             }
                         },
                         "required": ["element_id", "direction"],
@@ -1415,7 +1436,8 @@ class QAIV2Orchestrator:
         # Elementos disponibles (TOON)
         parts.append("### Elementos disponibles en la pantalla")
         if current_ui:
-            filtered_elements = self._filter_ui_elements_for_toon(current_ui)
+            # Usar modo "inspector" para la consulta de completitud
+            filtered_elements = self._filter_ui_elements_for_toon(current_ui, mode="inspector")
             try:
                 elements_toon = toon_encode(filtered_elements, {"delimiter": "|"})
                 parts.append(elements_toon)
@@ -1508,16 +1530,38 @@ class QAIV2Orchestrator:
         """
         COMPLETION_SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional.
 
-INTERPRETACIÓN DE RESULTADOS DE TOOLS:
-- "Success: ..." indica que la acción se ejecutó exitosamente
-- "Error: ..." indica que hubo un problema
-- Usa los resultados para determinar si el paso está completo
-- Si el resultado indica éxito y el paso pide esa acción → paso completo
+TU ROL COMO INSPECTOR:
+Tu misión es verificar si el paso actual se completó basándote en el resultado de la última tool y la UI actual.
+
+FORMATO DE ELEMENTOS (TOON):
+Los atributos están optimizados para la VERIFICACIÓN:
+- "id": ID del elemento
+- "possible_element_type": Tipo de widget (input, button, etc.)
+- "xpath": Ubicación técnica
+- "text" o "hint": Valor actual visible (clave para verificar estados)
+- "focused": "true" si tiene el foco actual
+- "checked": "true" si está marcado
+- "password": "true" si es oculto
+
+Ejemplo TOON:
+[1]{id|possible_element_type|xpath|text|checked}:
+  0|checkbox|//android.widget.CheckBox|Acepto términos|true
+
+CRITERIOS DE COMPLETITUD:
+1. Acción Exitosa vs Paso Completo:
+   - Que una tool devuelva "Success" NO siempre significa que el paso esté completo.
+   - Si el paso tiene una CONDICIÓN o META (ej: "año <= 2006"), DEBES verificar que el 'text' o 'hint' en la UI refleje ese estado.
+
+2. Verificación de UI:
+   - Si ves el valor deseado en el 'text' o 'hint' de un elemento, el paso está COMPLETO.
+
+3. Pasos "Hasta que":
+   - Si la condición ya se cumple en la UI → step_completed: true.
 
 RESPUESTA EN FORMATO TOON:
 Responde con un bloque TOON con la siguiente estructura:
 [1]{step_completed|reason}:
-  0|true|"Explicación breve"
+  0|true|"Explicación breve citando evidencia visual"
 
 - step_completed: "true" o "false"
 - reason: Texto explicativo breve entre comillas"""
@@ -1582,16 +1626,28 @@ Responde con un bloque TOON con la siguiente estructura:
         """
         COMPLETION_SYSTEM_PROMPT = """Eres QAI (QA Agent V2), un agente de QA Móvil autónomo con flujo conversacional.
 
-INTERPRETACIÓN DE RESULTADOS DE TOOLS:
-- "Success: ..." indica que la acción se ejecutó exitosamente
-- "Error: ..." indica que hubo un problema
-- Usa los resultados para determinar si el paso está completo
-- Si el resultado indica éxito y el paso pide esa acción → paso completo
+TU ROL COMO INSPECTOR:
+Tu misión es verificar si el paso actual se completó basándote en el resultado de la última tool y la UI actual.
+
+FORMATO DE ELEMENTOS (TOON):
+Los atributos están optimizados para la VERIFICACIÓN:
+- "id": ID del elemento
+- "possible_element_type": Tipo de widget (input, button, etc.)
+- "xpath": Ubicación técnica
+- "text" o "hint": Valor actual visible
+- "focused": "true" si tiene el foco actual
+- "checked": "true" si está marcado
+- "password": "true" si es oculto
+
+CRITERIOS DE COMPLETITUD:
+1. Verificación de UI:
+   - Verifica que el resultado esperado aparezca en los atributos 'text' o 'hint'.
+   - Si el paso pide un estado (ej: checked), verifícalo.
 
 RESPUESTA EN FORMATO TOON:
 Responde con un bloque TOON con la siguiente estructura:
 [1]{step_completed|reason}:
-  0|true|"Explicación breve"
+  0|true|"Explicación breve citando evidencia visual"
 
 - step_completed: "true" o "false"
 - reason: Texto explicativo breve entre comillas"""
