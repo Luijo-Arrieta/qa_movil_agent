@@ -30,7 +30,11 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-timeout = 300
+# Timeout aumentado para permitir reintentos y fallback de API
+# Con AI_API_TIMEOUT=240s, max_retries=2, y fallback a 2 proveedores:
+# Peor caso: 240s * 3 intentos * 3 proveedores = ~2160s (~36 min)
+# Configuramos 900s (15 min) como límite razonable
+timeout = 900
 timeout_method = "thread"
 addopts = [
     "-v",

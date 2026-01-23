@@ -654,7 +654,7 @@ class QAIV2TestRunner:
                                 }
                                 self.action_history.append(action_summary)
                                 
-                                # CASCADE CHECK: Verificamos el siguiente paso (N+1)
+                                # CASCADE CHECK: Verificamos el siguiente paso (N+1) usando Inspector CURRENT
                                 steps_advanced = 1
                                 # next_step se pasó como argumento a _execute_step
                                 if next_step:
@@ -662,21 +662,34 @@ class QAIV2TestRunner:
                                     try:
                                         # Reutilizamos la misma UI para el check del siguiente paso
                                         ui_for_cascading = current_ui_elements or (parse_result if isinstance(parse_result, list) else [])
-                                        
+
+                                        # Construir contexto para el siguiente paso (como si fuera el "paso actual")
+                                        # Esto permite usar check_type="current" que tiene mejor lógica de verificación
+                                        cascade_context = StepContext(
+                                            objective=self.objective,
+                                            step_index=step_index + 1,
+                                            total_steps=total_steps,
+                                            current_step=next_step,  # El siguiente paso ahora es el "actual"
+                                            next_step=None,  # No necesitamos el paso después del siguiente
+                                            previous_step=step,  # El paso actual pasa a ser el "anterior"
+                                            action_history=self.action_history[-5:] if self.action_history else [],
+                                            ui_elements=ui_for_cascading,
+                                            app_states=step_context.app_states,
+                                        )
+
                                         next_decision = self.ai_orchestrator.decide_step_completion(
-                                            context=step_context,
+                                            context=cascade_context,
                                             last_action=last_tool_call,
                                             last_result=last_result_message,
                                             current_ui=ui_for_cascading,
-                                            override_step_description=next_step,
-                                            check_type="next"
+                                            check_type="current"  # Usar lógica de Inspector CURRENT
                                         )
-                                        
+
                                         if next_decision.get("step_completed"):
                                             logger.info(f"  │ 🚀 CASCADE SUCCESS: ¡El paso siguiente TAMBIÉN está completo!")
                                             logger.info(f"  │   Razón: {next_decision.get('reason', 'N/A')}")
                                             steps_advanced = 2
-                                            
+
                                             # Registrar el paso auto-completado
                                             next_action_summary = {
                                                 "index": len(self.action_history) + 1,

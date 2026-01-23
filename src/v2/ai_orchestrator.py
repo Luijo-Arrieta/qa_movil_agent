@@ -452,21 +452,23 @@ class QAIV2Orchestrator:
             
             elif mode == "inspector":
                 # Seguir el orden estricto de la lista de inspector
-                # Para Inspector, introducimos 'text' o 'hint' antes de los flags
-                
+                # Para Inspector, incluimos AMBOS 'text' y 'hint' para distinguir campos llenos de vacíos
+
                 # 1. Atributos iniciales
                 for attr_name in ["possible_element_type", "xpath"]:
                     if attr_name in attrs_map:
                         filtered_element[attr_name] = attrs_map[attr_name]
-                
-                # 2. Lógica especial: text o hint (prioridad text)
+
+                # 2. Incluir text Y hint (ambos si existen) para verificación de estado
+                # - "text" presente = campo FUE RELLENADO
+                # - "hint" presente sin "text" = campo ESTÁ VACÍO (solo placeholder)
                 text_val = attrs_map.get("text")
                 hint_val = attrs_map.get("hint")
                 if text_val:
                     filtered_element["text"] = text_val
-                elif hint_val:
+                if hint_val:
                     filtered_element["hint"] = hint_val
-                
+
                 # 3. Atributos finales
                 for attr_name in ["focused", "checked", "clickable", "password"]:
                     if attr_name in attrs_map:
@@ -1512,10 +1514,17 @@ Los atributos están optimizados para la VERIFICACIÓN:
 - "id": ID del elemento
 - "possible_element_type": Tipo de widget (input, button, etc.)
 - "xpath": Ubicación técnica
-- "text" o "hint": Valor actual visible (clave para verificar estados)
+- "text": CONTENIDO ACTUAL del campo (texto ingresado por el usuario). Si está presente, el campo FUE RELLENADO.
+- "hint": PLACEHOLDER del campo (texto de ayuda). Si está presente SIN "text", el campo está VACÍO.
 - "focused": "true" si tiene el foco actual
 - "checked": "true" si está marcado
-- "password": "true" si es oculto
+- "password": "true" si es campo de contraseña (el texto se muestra como asteriscos)
+
+SEMÁNTICA CRÍTICA PARA INPUTS (possible_element_type="input"):
+- Campo CON "text" → FUE RELLENADO (tiene contenido del usuario)
+- Campo CON "hint" pero SIN "text" → ESTÁ VACÍO (solo muestra placeholder)
+- Campo SIN "text" NI "hint" → ESTÁ VACÍO
+- Para campos password="true", el "text" aparece como asteriscos (***) pero CONFIRMA que tiene contenido
 
 RESPUESTA EN FORMATO JSON:
 Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
@@ -1564,8 +1573,15 @@ CRITERIOS DE COMPLETITUD (PASO SIGUIENTE):
 2. Navegación implícita:
    - Si una acción anterior ya nos llevó al destino de este paso, retorna TRUE.
 
-3. IMPORTANTE:
-   - Si el paso requiere una acción nueva ACTIVA (ej: "Ingresar texto", "Tocar botón"), entonces NO está completo. Retorna FALSE. Solo pasos de verificación/espera suelen autocompletarse.
+3. REGLA CRÍTICA PARA PASOS DE "INGRESAR/ESCRIBIR/LLENAR":
+   - NUNCA marques como completo un paso de "Ingresar X en campo Y" sin verificar que ESE CAMPO ESPECÍFICO tiene "text".
+   - Debes identificar EL CAMPO CORRECTO mencionado en el paso (ej: "confirmación de contraseña" ≠ "contraseña").
+   - Si el campo destino NO tiene atributo "text" (o solo tiene "hint"), el paso NO está completo. Retorna FALSE.
+   - Que OTRO campo similar tenga "text" NO significa que ESTE paso esté completo.
+
+4. IMPORTANTE:
+   - Si el paso requiere una acción nueva ACTIVA (ej: "Ingresar texto", "Tocar botón"), entonces NO está completo. Retorna FALSE.
+   - Solo pasos de verificación/espera suelen autocompletarse.
 """ + base_format
         
         else:

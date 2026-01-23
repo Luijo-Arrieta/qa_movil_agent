@@ -75,30 +75,30 @@ class TestSignUpSpec:
             "Seleccionar el día 1 y mes enero en el selector de fecha",
             "Tocar el botón de confirmar/aceptar la fecha en el selector (debe estar habilitado si los pasos anteriores fueron exitosos)",
             
-            #f"Ingresar el correo '{test_email}' en el campo de email",
-            #f"Ingresar la contraseña '{test_password}' en el campo de contraseña",
-            #f"Ingresar nuevamente '{test_password}' en el campo de confirmación de contraseña",
-#
-            #"Marcar el checkbox de aceptación de términos y condiciones, si no está visible puedes hacer scroll down",
-#
+            f"Ingresar el correo '{test_email}' en el campo de email",
+            f"Ingresar la contraseña '{test_password}' en el campo de contraseña",
+            f"Ingresar nuevamente '{test_password}' en el campo de confirmación de contraseña",
+
+            "Marcar el checkbox de aceptación de términos y condiciones, si no está visible puedes hacer scroll down",
+
             ## Step 4: Submit and verify email sent
-            #"Tocar el botón 'Crea una cuenta' o similar",
-            #"Verificar que se muestra la pantalla para ingresar el código de verificación",
-#
+            "Envía el formulario desde una opción de crear cuenta o similar",
+            "Verificar que se muestra la pantalla para ingresar el código de verificación",
+
             ## Step 5: Email verification (AC-003.4)
-            #f"Obtener el código de verificación del correo '{test_email}' usando get_confirmation_code",
-            #"Ingresar el código de verificación de 4 dígitos en el campo correspondiente",
-            #"Tocar el botón de confirmar o validar código",
+            f"Obtener el código de verificación del correo '{test_email}' usando get_confirmation_code",
+            "Ingresar el código de verificación de 4 dígitos en el campo correspondiente",
+            "Envía el formulario para validar el código tocando el botón de confirmar o validar código",
 #
             ## Step 6: Complete profile (AC-003.5)
-            #"Esperar a ver la pantalla para completar el perfil",
-            #"Ingresar nombre 'TestUser' en el campo de nombre",
-            #"Ingresar apellido 'Demo' en el campo de apellido",
-            #"Tocar el botón de completar registro o finalizar",
+            "Esperar a ver la pantalla para completar el perfil",
+            "Ingresar nombre 'TestUser' en el campo de nombre",
+            "Ingresar apellido 'Demo' en el campo de apellido",
+            "Envía el formulario Tocando el botón de completar registro o finalizar",
 #
             ## Step 7: Verify successful registration (AC-003.6)
-            #"Verificar que se muestra la pantalla principal del cliente (home)",
-            #"Verificar que la sesión está iniciada correctamente",
+            "Verificar que se muestra la pantalla principal del cliente (home)",
+            "Verificar que la sesión está iniciada correctamente",
         ]#
 
         success = runner.run_test_plan(test_plan)
