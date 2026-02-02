@@ -41,6 +41,8 @@ class TestAIAgentExample:
 
         # Definir plan de prueba en lenguaje natural
         test_plan = [
+            # HumanAction: Start app immediately
+            lambda tools: tools.activate_app(Config.ANDROID_APP_PACKAGE if hasattr(Config, 'ANDROID_APP_PACKAGE') and Config.ANDROID_APP_PACKAGE else "com.imagineapps.gofixiicliente"),
             "Esperar a ver la pantalla de login",
             f"Ingresar usuario '{test_email}'",
             f"Ingresar password '{test_password}'",

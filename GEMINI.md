@@ -21,6 +21,7 @@ Extended documentation for non-technical users is available in `docs/`:
 - [Ubuntu Installation](docs/04-installation-ubuntu.md) - Step-by-step guide
 - [Prerequisites](docs/05-prerequisites.md) - Required tools and setup
 - [Creating Tests](docs/06-creating-tests.md) - Live coding tutorial
+- [Docker Emulator](docs/08-docker-emulator.md) - Portable setup without Android Studio
 
 ## Architecture
 
@@ -205,7 +206,7 @@ UIParser returns elements with a consistent structure using `{id, attrs}`:
 
 - Elements covering >95% of the screen (full-screen overlays) - always excluded
 - Clickable containers that have interactable children (EditText or clickable ImageView) - excluded
-- Clickable elements with `content-desc` matching mask patterns (e.g., "****\*\*****") - excluded
+- Clickable elements with `content-desc` matching mask patterns (e.g., "\***\*\*\*\*\***") - excluded
 - Large containers (>80% screen) without clickable status or useful identifiers - excluded
 
 ### XPath Generation (Hierarchical)

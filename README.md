@@ -30,21 +30,25 @@ Test Runner → UIParser → AI Orchestrator → Agent Tools → Appium
 - Dispositivo Android o emulador conectado
 - API Key de OpenAI, Anthropic o DeepSeek
 - Allure CLI (opcional, para generar reportes HTML)
+- **Docker Desktop** (opcional, recomendado para portabilidad y evitar instalar Android Studio)
 
 ## 🚀 Instalación
 
 1. Instalar Poetry (si no lo tienes instalado):
+
 ```bash
 curl -sSL https://install.python-poetry.org | python3 -
 ```
 
 2. Clonar el repositorio:
+
 ```bash
 git clone git@github.com:Luijo-Arrieta/qa_movil_agent.git
 cd Gofixi_Agent
 ```
 
 3. Instalar dependencias con Poetry:
+
 ```bash
 poetry install
 ```
@@ -52,11 +56,13 @@ poetry install
 4. Activar el entorno virtual de Poetry:
 
 **En Linux/Ubuntu:**
+
 ```bash
 poetry shell
 ```
 
 **En Windows/PowerShell (Poetry 2.0.0+):**
+
 ```powershell
 # Opción 1: Usar poetry env activate (recomendado)
 poetry env activate
@@ -71,6 +77,7 @@ poetry run pytest  # Ejecuta comandos directamente en el entorno
 ```
 
 **Verificar que el entorno está activado:**
+
 ```bash
 # Ver la ruta de Python (debe apuntar al venv)
 where python        # Windows
@@ -85,6 +92,7 @@ python -c "import sys; print(sys.executable)"
 ```
 
 5. Configurar variables de entorno:
+
 ```bash
 cp .env.example .env
 # Editar .env con tus API keys y configuración
@@ -142,25 +150,34 @@ Antes de correr las pruebas de la app, asegúrate de tener listos los recursos e
 Verifica que tienes conectados (o disponibles en emulador) los dispositivos Android necesarios.
 
 **Para listar los dispositivos disponibles ejecuta:**
+
 ```bash
 adb devices
 ```
+
 Esto mostrará los dispositivos/emuladores conectados. Deberías ver una salida como:
+
 ```
 List of devices attached
 emulator-5554   device
 ```
 
 #### Iniciar un emulador Android
+
 Si no ves ningún emulador activo, puedes lanzar uno manualmente. Para ver los emuladores instalados:
+
 ```bash
 $ANDROID_HOME/emulator/emulator -list-avds
 ```
+
 Luego, para iniciarlo:
+
 ```bash
 $ANDROID_HOME/emulator/emulator -avd NOMBRE_DEL_AVD
 ```
+
 O en sistemas con AVD Manager en el path:
+
 ```bash
 emulator -avd NOMBRE_DEL_AVD
 ```
@@ -168,32 +185,50 @@ emulator -avd NOMBRE_DEL_AVD
 ### 2. Iniciar Appium con todos los plugins habilitados
 
 Asegúrate de tener Appium instalado. Si no lo tienes:
+
 ```bash
 npm install -g appium
 ```
 
 Para listar los plugins disponibles (opcional):
+
 ```bash
 appium plugin list
 ```
 
 Para instalar (por ejemplo) el plugin de inspector, puedes utilizar:
+
 ```bash
 appium plugin install --source=npm appium-inspector-plugin
 ```
 
 **Para iniciar Appium y activar todos los plugins instalados:**
+
 ```bash
 appium --use-plugins=all
 ```
+
 En bash/shell, simplemente ejecuta ese comando en una terminal antes de correr tus pruebas.
 
 > **Nota:** Si necesitas activar solo plugins específicos:
+
 ```bash
 appium --use-plugins=plugin1,plugin2
 ```
 
-Ya con Appium corriendo y el dispositivo/emulador disponible, puedes comenzar a ejecutar los tests.
+## 🐳 Portabilidad con Docker (Recomendado)
+
+Si quieres evitar instalar Android Studio, el SDK de Android y configurar Appium manualmente, puedes usar nuestra imagen de Docker. Esto permite que cualquier persona del equipo corra los tests con un solo comando.
+
+👉 **[Ver Guía del Emulador en Docker](docs/08-docker-emulator.md)**
+
+```bash
+# Iniciar emulador + Appium server
+docker-compose up -d
+
+# Ver el celular en tu navegador
+# http://localhost:6080
+```
 
 ## 💻 Uso
 
@@ -252,6 +287,7 @@ driver.quit()
 ```
 
 Ejecutar el archivo:
+
 ```bash
 poetry run python ejemplo_test.py
 ```
@@ -269,6 +305,7 @@ python
 ```
 
 Luego dentro de Python:
+
 ```python
 >>> from src.test_runner import AITestRunner
 >>> # ... resto del código
@@ -312,6 +349,7 @@ tests/
 ```
 
 **Convención de Nombres:**
+
 - `test_*.py` - Tests del proyecto (framework, componentes internos)
 - `spec_*.py` - Tests de usuario (especificaciones de funcionalidad de la app)
 
@@ -351,13 +389,13 @@ poetry run pytest --timeout=300
 
 ### Diferencia entre Unit y Specs
 
-| Característica | `tests/unit/` | `tests/specs/` |
-|---------------|---------------|----------------|
-| Requiere Appium | ❌ No | ✅ Sí |
-| Requiere dispositivo | ❌ No | ✅ Sí |
-| Velocidad | ⚡ Muy rápido | 🐢 Lento |
-| Usa mocks | ✅ Sí | ❌ No (real) |
-| Ideal para | CI/CD, desarrollo | Validación E2E |
+| Característica       | `tests/unit/`     | `tests/specs/` |
+| -------------------- | ----------------- | -------------- |
+| Requiere Appium      | ❌ No             | ✅ Sí          |
+| Requiere dispositivo | ❌ No             | ✅ Sí          |
+| Velocidad            | ⚡ Muy rápido     | 🐢 Lento       |
+| Usa mocks            | ✅ Sí             | ❌ No (real)   |
+| Ideal para           | CI/CD, desarrollo | Validación E2E |
 
 > **Nota:** En Windows con Poetry 2.0.0+, es más simple usar `poetry run` antes de cada comando en lugar de activar el entorno manualmente.
 
@@ -379,6 +417,7 @@ $env:Path += ";D:\Imagine\allure-2.36.0\allure-2.36.0\bin"
 ```
 
 **Verificar instalación:**
+
 ```bash
 allure --version
 ```
@@ -481,20 +520,24 @@ decision = orchestrator.decide_next_action(
 ## 🔧 Troubleshooting
 
 ### Error: "API_KEY no está configurada"
+
 - Verifica que el archivo `.env` existe y contiene la API key correcta para el proveedor seleccionado
 - Para OpenAI: `OPENAI_API_KEY`
 - Para Anthropic: `ANTHROPIC_API_KEY`
 - Para DeepSeek: `DEEPSEEK_API_KEY`
 
 ### Error: "No se puede conectar a Appium"
+
 - Asegúrate de que Appium Server está corriendo: `appium`
 - Verifica la URL en `.env`: `APPIUM_SERVER_URL=http://localhost:4723`
 
 ### Error: "Dispositivo no encontrado"
+
 - Lista dispositivos: `adb devices`
 - Actualiza `ANDROID_DEVICE_NAME` en `.env`
 
 ### El agente no encuentra elementos
+
 - Verifica que la app está abierta y visible
 - Revisa los logs para ver qué elementos detectó el UIParser
 - Intenta hacer scroll si el elemento está fuera de la pantalla
@@ -525,4 +568,3 @@ Este proyecto está bajo la Licencia MIT.
 - Appium por la infraestructura de automatización móvil
 - OpenAI, Anthropic y DeepSeek por los modelos de IA
 - La comunidad de testing automatizado
-

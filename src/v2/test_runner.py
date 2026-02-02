@@ -120,7 +120,8 @@ class QAIV2TestRunner:
         # Listar todos los pasos
         logger.info("TEST_RUNNER: Plan de prueba:")
         for idx, step in enumerate(test_plan, 1):
-            logger.info(f"  {idx}. {step}")
+            step_desc = step if isinstance(step, str) else f"[HumanAction] {step.__name__ if hasattr(step, '__name__') else 'lambda'}"
+            logger.info(f"  {idx}. {step_desc}")
         logger.info("")
 
         step_index = 0
@@ -129,23 +130,42 @@ class QAIV2TestRunner:
             display_index = step_index + 1
             step_start_time = datetime.now()
             
+            step_log_desc = step if isinstance(step, str) else f"[HumanAction] {step.__name__ if hasattr(step, '__name__') else 'lambda'}"
+
             logger.info("")
             logger.info("═" * 80)
-            logger.info(f"▶ PASO {display_index}/{len(test_plan)}: {step}")
+            logger.info(f"▶ PASO {display_index}/{len(test_plan)}: {step_log_desc}")
             logger.info("═" * 80)
             logger.info(f"TEST_RUNNER: Iniciando paso {display_index} a las {step_start_time.strftime('%H:%M:%S.%f')[:-3]}")
 
+            def _get_desc(s):
+                if s is None: return None
+                return s if isinstance(s, str) else f"[HumanAction] {s.__name__ if hasattr(s, '__name__') else 'lambda'}"
+
             # Calcular previous_step / next_step para el contexto del plan
-            previous_step = test_plan[step_index - 1] if step_index > 0 else None
-            next_step = test_plan[step_index + 1] if step_index < len(test_plan) - 1 else None
+            # Para previous_step, si es HumanAction buscar en el historial el detalle de qué se ejecutó
+            if step_index > 0:
+                prev_step = test_plan[step_index - 1]
+                previous_step_desc = _get_desc(prev_step)
+
+                # Si previous_step era HumanAction, buscar en historial la última acción ejecutada
+                if callable(prev_step) and self.action_history:
+                    last_action = self.action_history[-1]
+                    if last_action.get("is_human_action"):
+                        # Reemplazar la descripción genérica con la del historial
+                        previous_step_desc = last_action.get("action", previous_step_desc)
+            else:
+                previous_step_desc = None
+
+            next_step_desc = _get_desc(test_plan[step_index + 1]) if step_index < len(test_plan) - 1 else None
 
             # Ejecutar el paso
             result = self._execute_step(
                 step=step,
                 step_index=display_index,
                 total_steps=len(test_plan),
-                previous_step=previous_step,
-                next_step=next_step,
+                previous_step=previous_step_desc,
+                next_step=next_step_desc,
             )
             
             step_elapsed = (datetime.now() - step_start_time).total_seconds()
@@ -247,9 +267,65 @@ class QAIV2TestRunner:
         except Exception as e:
             logger.warning(f"  RUNNER: No se pudo capturar screenshot final: {e}")
 
+    def _execute_human_action(self, action_callable: Any, step_index: int) -> Dict[str, Any]:
+        """
+        Ejecuta una acción humana directa (lambda) sin pasar por la IA.
+
+        Captura automáticamente información del resultado para enriquecer
+        el contexto disponible al agente en pasos subsiguientes.
+        """
+        action_name = action_callable.__name__ if hasattr(action_callable, "__name__") else "lambda"
+        logger.info(f"  RUNNER: Ejecutando HumanAction ({action_name})...")
+
+        try:
+            # Ejecutar el callable pasando las herramientas
+            result = action_callable(self.agent_tools)
+
+            # Formatear el resultado para el historial
+            result_str = str(result)
+            action_detail = f"HumanAction: {action_name}"
+
+            if isinstance(result, MiddlewareResult):
+                result_str = result.message
+            elif isinstance(result, dict):
+                # Si el resultado es un dict con información descriptiva, extraerla
+                if "message" in result:
+                    result_str = result["message"]
+
+            # Extraer información descriptiva del mensaje de resultado
+            # Ejemplos de mensajes:
+            # - "Success: Activated app 'com.imagineapps.gofixiicliente'"
+            # - "Success: Clicked element 5"
+            # - "Success: Filled field 3 with value 'test@example.com'"
+            if result_str and isinstance(result_str, str):
+                # Extraer la parte descriptiva después de "Success: "
+                if result_str.startswith("Success: "):
+                    action_description = result_str[9:]  # Omitir "Success: "
+                    action_detail = f"[HumanAction] {action_description}"
+
+            logger.info(f"  RUNNER: ✓ HumanAction completada: {result_str}")
+
+            # Inyectar en el historial para que la IA tenga contexto en el siguiente paso
+            self.action_history.append({
+                "index": len(self.action_history) + 1,
+                "action": action_detail,
+                "result": result_str,
+                "success": True,
+                "is_human_action": True
+            })
+
+            self._execution_stats["total_actions"] += 1
+
+            return {"success": True, "steps_advanced": 1}
+
+        except Exception as e:
+            logger.error(f"  RUNNER ERROR: Fallo en HumanAction: {e}")
+            logger.error(f"  Traceback:\n{traceback.format_exc()}")
+            return {"success": False}
+
     def _execute_step(
         self,
-        step: str,
+        step: Any,
         step_index: int,
         total_steps: int,
         previous_step: Optional[str],
@@ -273,6 +349,15 @@ class QAIV2TestRunner:
         Returns:
             Dict con {"success": bool, "steps_advanced": int}
         """
+        # Chequeo de HumanAction (Lambda/Callable)
+        if callable(step):
+            return self._execute_human_action(step, step_index)
+
+        # Si es un string, es un paso para la IA
+        if not isinstance(step, str):
+            logger.error(f"  RUNNER ERROR: Tipo de paso no soportado: {type(step)}")
+            return {"success": False}
+
         # Límites de acciones (desde Config para permitir personalización via .env)
         max_actions_per_step = Config.MAX_ACTIONS_PER_STEP
         max_repeated_action_attempts = Config.MAX_REPEATED_ACTION_ATTEMPTS
@@ -550,7 +635,8 @@ class QAIV2TestRunner:
                                 context=step_context,
                                 last_action=last_tool_call,
                                 last_result=last_result_message,
-                                current_ui=current_ui_elements or (parse_result if isinstance(parse_result, list) else [])
+                                current_ui=current_ui_elements or (parse_result if isinstance(parse_result, list) else []),
+                                check_type="current"
                             )
                             phase4_5_time = int((time.time() - phase4_5_start) * 1000)
                             logger.info(f"  │ FASE 4.5: ✓ Decisión de completitud recibida en {phase4_5_time}ms")
@@ -568,7 +654,7 @@ class QAIV2TestRunner:
                                 }
                                 self.action_history.append(action_summary)
                                 
-                                # CASCADE CHECK: Verificamos el siguiente paso (N+1)
+                                # CASCADE CHECK: Verificamos el siguiente paso (N+1) usando Inspector CURRENT
                                 steps_advanced = 1
                                 # next_step se pasó como argumento a _execute_step
                                 if next_step:
@@ -576,20 +662,34 @@ class QAIV2TestRunner:
                                     try:
                                         # Reutilizamos la misma UI para el check del siguiente paso
                                         ui_for_cascading = current_ui_elements or (parse_result if isinstance(parse_result, list) else [])
-                                        
+
+                                        # Construir contexto para el siguiente paso (como si fuera el "paso actual")
+                                        # Esto permite usar check_type="current" que tiene mejor lógica de verificación
+                                        cascade_context = StepContext(
+                                            objective=self.objective,
+                                            step_index=step_index + 1,
+                                            total_steps=total_steps,
+                                            current_step=next_step,  # El siguiente paso ahora es el "actual"
+                                            next_step=None,  # No necesitamos el paso después del siguiente
+                                            previous_step=step,  # El paso actual pasa a ser el "anterior"
+                                            action_history=self.action_history[-5:] if self.action_history else [],
+                                            ui_elements=ui_for_cascading,
+                                            app_states=step_context.app_states,
+                                        )
+
                                         next_decision = self.ai_orchestrator.decide_step_completion(
-                                            context=step_context,
+                                            context=cascade_context,
                                             last_action=last_tool_call,
                                             last_result=last_result_message,
                                             current_ui=ui_for_cascading,
-                                            override_step_description=next_step
+                                            check_type="current"  # Usar lógica de Inspector CURRENT
                                         )
-                                        
+
                                         if next_decision.get("step_completed"):
                                             logger.info(f"  │ 🚀 CASCADE SUCCESS: ¡El paso siguiente TAMBIÉN está completo!")
                                             logger.info(f"  │   Razón: {next_decision.get('reason', 'N/A')}")
                                             steps_advanced = 2
-                                            
+
                                             # Registrar el paso auto-completado
                                             next_action_summary = {
                                                 "index": len(self.action_history) + 1,
@@ -632,7 +732,7 @@ class QAIV2TestRunner:
                         }
                         self.action_history.append(action_summary)
 
-                        # CASCADE CHECK: Verificamos el siguiente paso (N+1)
+                        # CASCADE CHECK: Verificamos el siguiente paso (N+1) usando Inspector CURRENT
                         steps_advanced = 1
                         if next_step:
                             logger.info(f"  │ 🔍 CASCADE CHECK: ¿El siguiente paso ya está listo? ('{next_step[:40]}...')")
@@ -640,20 +740,34 @@ class QAIV2TestRunner:
                                 # Reutilizamos la misma UI para el check del siguiente paso
                                 # current_ui_elements contiene la UI actual parseada
                                 ui_for_cascading = current_ui_elements or []
-                                
+
+                                # Construir contexto para el siguiente paso (como si fuera el "paso actual")
+                                # Esto permite usar check_type="current" que tiene mejor lógica de verificación
+                                cascade_context = StepContext(
+                                    objective=self.objective,
+                                    step_index=step_index + 1,
+                                    total_steps=total_steps,
+                                    current_step=next_step,  # El siguiente paso ahora es el "actual"
+                                    next_step=None,  # No necesitamos el paso después del siguiente
+                                    previous_step=step,  # El paso actual pasa a ser el "anterior"
+                                    action_history=self.action_history[-5:] if self.action_history else [],
+                                    ui_elements=ui_for_cascading,
+                                    app_states=step_context.app_states,
+                                )
+
                                 next_decision = self.ai_orchestrator.decide_step_completion(
-                                    context=step_context,
-                                    last_action={}, # No hubo acción en esta iteración
+                                    context=cascade_context,
+                                    last_action={},  # No hubo acción en esta iteración
                                     last_result="Paso ya completado según análisis inicial",
                                     current_ui=ui_for_cascading,
-                                    override_step_description=next_step
+                                    check_type="current"  # Usar lógica de Inspector CURRENT
                                 )
-                                
+
                                 if next_decision.get("step_completed"):
                                     logger.info(f"  │ 🚀 CASCADE SUCCESS: ¡El paso siguiente TAMBIÉN está completo!")
                                     logger.info(f"  │   Razón: {next_decision.get('reason', 'N/A')}")
                                     steps_advanced = 2
-                                    
+
                                     # Registrar el paso auto-completado
                                     next_action_summary = {
                                         "index": len(self.action_history) + 1,
