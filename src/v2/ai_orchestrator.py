@@ -12,13 +12,16 @@ import logging
 import time
 import traceback
 from dataclasses import dataclass, asdict
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable, TypeVar
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from openai import OpenAI
 from anthropic import Anthropic
 
 from toon_format import encode as toon_encode
 
 from src.config import Config
+
+T = TypeVar('T')
 
 # Configurar logging para este módulo
 logger = logging.getLogger(__name__)
@@ -270,6 +273,40 @@ class QAIV2Orchestrator:
         self.fallback_models: Dict[str, str] = {}
         if Config.AI_FALLBACK_ENABLED and Config.AI_FALLBACK_PROVIDERS:
             self._initialize_fallback_providers()
+
+    def _call_with_forced_timeout(self, func: Callable[[], T], timeout: float, operation_name: str) -> T:
+        """
+        Ejecuta una función con timeout forzado a nivel de thread.
+        Garantiza que NUNCA se quede colgado más de 'timeout' segundos,
+        incluso si el socket SSL está bloqueado.
+
+        Args:
+            func: Función a ejecutar (sin argumentos, usar lambda si necesita args)
+            timeout: Timeout en segundos
+            operation_name: Nombre de la operación (para logging)
+
+        Returns:
+            Resultado de la función
+
+        Raises:
+            TimeoutError: Si la operación excede el timeout
+        """
+        logger.debug(f"  ORCHESTRATOR [{operation_name}]: Ejecutando con timeout forzado de {timeout}s")
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(func)
+            try:
+                result = future.result(timeout=timeout)
+                logger.debug(f"  ORCHESTRATOR [{operation_name}]: ✓ Completado dentro del timeout")
+                return result
+            except FuturesTimeoutError:
+                logger.error(f"  ORCHESTRATOR [{operation_name}]: ✗ TIMEOUT forzado después de {timeout}s")
+                # Intentar cancelar el future (aunque el thread puede seguir bloqueado)
+                future.cancel()
+                raise TimeoutError(f"{operation_name} excedió el timeout de {timeout}s (timeout forzado a nivel de thread)")
+            except Exception as e:
+                logger.error(f"  ORCHESTRATOR [{operation_name}]: ✗ Error: {type(e).__name__}: {e}")
+                raise
 
     def _initialize_fallback_providers(self) -> None:
         """Inicializa clientes de fallback para proveedores configurados."""
@@ -1045,15 +1082,23 @@ class QAIV2Orchestrator:
                     time.sleep(retry_delay)
 
                 logger.debug("  ORCHESTRATOR [OpenAI]: Enviando request...")
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice="auto",
-                    temperature=0.2,  # Baja temperatura para decisiones más determinísticas
-                    store=True,  # Habilita almacenamiento en OpenAI Platform (logs/traces)
-                    timeout=timeout,
-                )
+
+                # Usar timeout forzado a nivel de thread para garantizar que NUNCA se quede colgado
+                # Agrega 5s de margen al timeout configurado para el wrapper
+                forced_timeout = timeout + 5.0
+
+                def _make_request():
+                    return self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice="auto",
+                        temperature=0.2,
+                        store=True,
+                        timeout=timeout,
+                    )
+
+                response = self._call_with_forced_timeout(_make_request, forced_timeout, "OpenAI API")
                 logger.debug("  ORCHESTRATOR [OpenAI]: ✓ Response recibido")
                 
                 # Si llegamos aquí, la llamada fue exitosa
@@ -1174,16 +1219,23 @@ class QAIV2Orchestrator:
                     time.sleep(retry_delay)
 
                 logger.debug("  ORCHESTRATOR [Anthropic]: Enviando request...")
-                message = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=1024,
-                    system=SYSTEM_PROMPT,
-                    messages=[
-                        {"role": "user", "content": context},
-                    ],
-                    tools=anthropic_tools,
-                    timeout=timeout,
-                )
+
+                # Usar timeout forzado a nivel de thread
+                forced_timeout = timeout + 5.0
+
+                def _make_request():
+                    return self.client.messages.create(
+                        model=self.model,
+                        max_tokens=1024,
+                        system=SYSTEM_PROMPT,
+                        messages=[
+                            {"role": "user", "content": context},
+                        ],
+                        tools=anthropic_tools,
+                        timeout=timeout,
+                    )
+
+                message = self._call_with_forced_timeout(_make_request, forced_timeout, "Anthropic API")
                 logger.debug("  ORCHESTRATOR [Anthropic]: ✓ Response recibido")
 
                 # Si llegamos aquí, la llamada fue exitosa
@@ -1539,23 +1591,34 @@ Responde EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura:
 
         if check_type == "current":
             return """Eres QAI (QA Agent V2).
-            
+
 ROL: INSPECTOR DE PASO ACTUAL
-Tu misión es VERIFICAR si el paso activo se ha completado exitosamente tras la ejecución de la última acción.
+Tu misión es VERIFICAR si el paso activo se ha completado exitosamente.
 
 CRITERIOS DE COMPLETITUD (PASO ACTUAL):
 1. Acción Exitosa + Resultado Visual:
    - Si la acción (tool) reportó "Success" Y la UI cambió mostrando el resultado esperado (navegación, texto ingresado, etc.), el paso está COMPLETO.
-   
+
 2. Verificaciones (Asserts):
    - Si el paso es "Verificar X" o "Esperar Y" y el elemento ya es visible en la UI actual, el paso está COMPLETO.
 
-3. Análisis de Evidencia:
-   - Usa el 'text', 'hint' y estructura de la UI para confirmar que lo que pide el paso ya ocurrió.
+3. Estado ya alcanzado (sin acción directa):
+   - Si no hubo acción específica para este paso pero el estado ya existe en la UI, evalúa solo basándote en la UI actual.
+   - Si el paso dice "Verificar que se ve pantalla X" y YA estamos en pantalla X, retorna TRUE.
+   - Si el paso dice "Esperar a ver botón Y" y el botón Y YA es visible, retorna TRUE.
 
-4. AMBIGÜEDAD "CONFIRMAR":
+4. REGLA CRÍTICA PARA PASOS DE "INGRESAR/ESCRIBIR/LLENAR/TOCAR":
+   - Si el paso requiere una ACCIÓN (ingresar texto, tocar botón) y NO se ejecutó una acción para este paso, retorna FALSE.
+   - NUNCA marques como completo un paso de "Ingresar X en campo Y" sin verificar que ESE CAMPO ESPECÍFICO tiene "text".
+   - Debes identificar EL CAMPO CORRECTO mencionado en el paso (ej: "confirmación de contraseña" ≠ "contraseña").
+   - Si el campo destino NO tiene atributo "text" (o solo tiene "hint"), el paso NO está completo. Retorna FALSE.
+
+5. AMBIGÜEDAD "CONFIRMAR":
    - Si el paso dice "Confirmar X" (ej: "Confirmar cierre de sesión"), esto suele implicar una ACCIÓN (tocar "Sí/Aceptar").
    - Si solo ves el diálogo abierto pero no has tocado la opción de confirmar en él, el paso NO está completo.
+
+6. Análisis de Evidencia:
+   - Usa el 'text', 'hint' y estructura de la UI para confirmar que lo que pide el paso ya ocurrió.
 """ + base_format
 
         elif check_type == "next":
@@ -1612,13 +1675,20 @@ CRITERIOS DE COMPLETITUD (PASO SIGUIENTE):
                     logger.info(f"AI_ORCHESTRATOR [OpenAI] Completitud: Reintento {attempt - 1}/{max_retries}...")
                     time.sleep(retry_delay)
 
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=0.2,
-                    timeout=timeout,
-                    response_format={"type": "json_object"}
-                )
+                # Usar timeout forzado a nivel de thread para garantizar que NUNCA se quede colgado
+                # Agrega 5s de margen al timeout configurado para el wrapper
+                forced_timeout = timeout + 5.0
+
+                def _make_completion_request():
+                    return self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        temperature=0.2,
+                        timeout=timeout,
+                        response_format={"type": "json_object"}
+                    )
+
+                response = self._call_with_forced_timeout(_make_completion_request, forced_timeout, "OpenAI Completion")
 
                 message = response.choices[0].message
                 return message.content or "{}"
@@ -1668,15 +1738,21 @@ CRITERIOS DE COMPLETITUD (PASO SIGUIENTE):
                     logger.info(f"AI_ORCHESTRATOR [Anthropic] Completitud: Reintento {attempt - 1}/{max_retries}...")
                     time.sleep(retry_delay)
 
-                message = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=512,
-                    system=system_prompt,
-                    messages=[
-                        {"role": "user", "content": context},
-                    ],
-                    timeout=timeout,
-                )
+                # Usar timeout forzado a nivel de thread
+                forced_timeout = timeout + 5.0
+
+                def _make_completion_request():
+                    return self.client.messages.create(
+                        model=self.model,
+                        max_tokens=512,
+                        system=system_prompt,
+                        messages=[
+                            {"role": "user", "content": context},
+                        ],
+                        timeout=timeout,
+                    )
+
+                message = self._call_with_forced_timeout(_make_completion_request, forced_timeout, "Anthropic Completion")
 
                 # Extraer mensaje de texto
                 text_message = None
