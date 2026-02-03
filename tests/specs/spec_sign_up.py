@@ -59,7 +59,7 @@ class TestSignUpSpec:
         # Generate unique email to avoid duplicates
         import time
         timestamp = int(time.time())
-        test_email = f"test.user.{timestamp}@demo.com"
+        test_email = f"luis.arrieta+{timestamp}@imagineapps.co"
         test_password = Config.TEST_USER_PASSWORD or "Test123!"
 
         test_plan = [
