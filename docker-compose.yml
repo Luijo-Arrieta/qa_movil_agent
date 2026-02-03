@@ -14,6 +14,8 @@ services:
       - APPIUM=true
     devices:
       - /dev/kvm
-    # Comenta o elimina los volumes para probar
-    # volumes:
-    #   - ./data:/home/androidusr/.android
+    volumes:
+      - android_data:/home/androidusr
+
+volumes:
+  android_data: {}

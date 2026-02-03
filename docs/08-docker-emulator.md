@@ -1,4 +1,4 @@
-# Emulador Android en Docker (Guía de Portabilidad)
+# Emulador Android en Docker (Guía de Portabilidad y Persistencia)
 
 Esta guía explica cómo ejecutar un emulador de Android y un servidor de Appium totalmente funcionales usando Docker. Esta es la opción recomendada para equipos que no desean instalar Android Studio o el SDK de Android completo.
 
@@ -7,7 +7,7 @@ Esta guía explica cómo ejecutar un emulador de Android y un servidor de Appium
 - **Portabilidad**: El entorno es idéntico para todos los miembros del equipo.
 - **Ligero**: Consume significativamente menos recursos que Android Studio.
 - **Zero Install**: No requiere instalar SDKs, Platform Tools o Node.js en el sistema host.
-- **Appium Incluido**: El servidor de Appium viene pre-instalado y configurado dentro del contenedor.
+- **Persistencia**: Gracias a los Volúmenes Nombrados de Docker, tus apps y configuraciones se mantienen incluso tras apagar el contenedor.
 
 ## Pre-requisitos
 
@@ -17,16 +17,44 @@ Esta guía explica cómo ejecutar un emulador de Android y un servidor de Appium
    - Abre tu terminal (PowerShell o CMD) y escribe `wsl` para entrar a tu distribución de Linux.
    - Una vez dentro de Linux, ejecuta: `ls -l /dev/kvm`.
    - Deberías ver una salida similar a esta: `crw-rw---- 1 root kvm 10, 232 Feb  2 14:57 /dev/kvm`.
-   - **Nota**: Si el archivo no existe, sal de WSL (`exit`) y ejecuta `wsl --update` en PowerShell como administrador.
+   - **Nota**: Si el archivo no existe o no tienes permisos, sal de WSL (`exit`) y ejecuta `wsl --update` en PowerShell como administrador.
 
-## Configuración Rápida
+## Configuración del `docker-compose.yml`
+
+Asegúrate de tener esta estructura para garantizar la persistencia de datos:
+
+```yaml
+version: "3"
+services:
+  android-emulator:
+    image: budtmo/docker-android:emulator_11.0
+    container_name: android-container
+    privileged: true
+    ports:
+      - "6080:6080"
+      - "5555:5555"
+      - "4723:4723"
+    environment:
+      - EMULATOR_DEVICE=Samsung Galaxy S10
+      - WEB_VNC=true
+      - APPIUM=true
+    devices:
+      - /dev/kvm
+    volumes:
+      - android_data:/home/androidusr
+
+volumes:
+  android_data: {}
+```
+
+## Uso Rápido
 
 ### 1. Iniciar el Emulador
 
 En la raíz del proyecto, ejecuta:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 2. Ver el Celular (Interfaz Gráfica)
@@ -34,15 +62,13 @@ docker-compose up -d
 Abre tu navegador y entra a:
 👉 **[http://localhost:6080](http://localhost:6080)**
 
-### 3. Verificar Conexión (Zero Install)
+### 3. Verificar Conexión
 
 No necesitas tener `adb` instalado en tu Windows. Puedes usar el que está dentro del contenedor:
 
 ```bash
 docker exec android-container adb devices
 ```
-
-_Si ves `emulator-5554 offline`, espera un minuto a que termine de encender hasta que cambie a `device`._
 
 ## Gestión de Aplicaciones (Instalación)
 
@@ -70,32 +96,20 @@ APPIUM_SERVER_URL=http://localhost:4723
 ANDROID_DEVICE_NAME=emulator-5554
 ```
 
-## Comandos Útiles de Mantenimiento
+## Persistencia de Datos
 
-- **Reiniciar el celular (sin borrar apps):**
+Al usar **Volúmenes Nombrados** (`android_data`):
 
+- Puedes hacer `docker compose down` y `docker compose up -d` sin perder tus apps instaladas.
+- Los datos se guardan en un volumen gestionado por Docker, lo que evita problemas de permisos comunes entre Windows y Linux.
+
+## Comandos Útiles
+
+- **Reiniciar el celular (soft reboot):**
   ```bash
   docker exec android-container adb reboot
   ```
-
-- **Ver logs en tiempo real:**
-
+- **Ver logs del sistema:**
   ```bash
   docker logs -f android-container
   ```
-
-- **Apagar y mantener datos:**
-
-  ```bash
-  docker stop android-container
-  ```
-
-- **Borrar todo y empezar de cero:**
-  ```bash
-  docker-compose down
-  ```
-
-## Solución de Problemas
-
-- **Pantalla negra en el navegador**: Asegúrate de que el contenedor tenga asignados al menos **4GB de RAM** y **4 CPUs** en los ajustes de Docker Desktop (Resources).
-- **Error de permisos /dev/kvm**: En algunas distros de WSL2, podrías necesitar ejecutar `sudo chmod 666 /dev/kvm` dentro de tu terminal de Linux después de cada reinicio de Windows.
