@@ -45,9 +45,14 @@ class SafeFileHandler(logging.FileHandler):
             # Verificar si el stream está disponible y abierto
             if self.stream is None or self.stream.closed:
                 return
-            
+
             # Usar el método padre que ya maneja el encoding correctamente
             super().emit(record)
+
+            # Flush inmediato para asegurar que los logs se escriban al archivo
+            # Esto garantiza que los logs estén disponibles incluso si el proceso se interrumpe
+            if self.stream and not self.stream.closed:
+                self.stream.flush()
         except (ValueError, OSError, UnicodeEncodeError, AttributeError, RuntimeError):
             # Ignorar errores de I/O cuando el archivo está cerrado
             # o problemas de encoding, o cuando el stream no está disponible

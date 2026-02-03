@@ -30,12 +30,9 @@ try:
 except ImportError:
     ALLURE_AVAILABLE = False
 
-# Configurar logging con formato detallado
-logging.basicConfig(
-    level=logging.DEBUG,  # Cambiado a DEBUG para máxima visibilidad
-    format='%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+# Obtener logger para este módulo
+# NOTA: NO llamar a logging.basicConfig() aquí porque conftest.py ya
+# configuró el root logger con handlers para consola y archivo
 logger = logging.getLogger(__name__)
 
 

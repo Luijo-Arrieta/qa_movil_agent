@@ -1081,7 +1081,7 @@ class QAIV2Orchestrator:
                     logger.info("  ORCHESTRATOR [OpenAI]: Reintentando...")
                     time.sleep(retry_delay)
 
-                logger.debug("  ORCHESTRATOR [OpenAI]: Enviando request...")
+                logger.info(f"  ORCHESTRATOR [OpenAI]: Enviando request (intento {attempt}/{max_retries + 1}, timeout={timeout}s)...")
 
                 # Usar timeout forzado a nivel de thread para garantizar que NUNCA se quede colgado
                 # Agrega 5s de margen al timeout configurado para el wrapper
@@ -1099,7 +1099,7 @@ class QAIV2Orchestrator:
                     )
 
                 response = self._call_with_forced_timeout(_make_request, forced_timeout, "OpenAI API")
-                logger.debug("  ORCHESTRATOR [OpenAI]: ✓ Response recibido")
+                logger.info("  ORCHESTRATOR [OpenAI]: ✓ Response recibido")
                 
                 # Si llegamos aquí, la llamada fue exitosa
                 break
@@ -1218,7 +1218,7 @@ class QAIV2Orchestrator:
                     logger.info(f"AI_ORCHESTRATOR [Anthropic]: Reintento {attempt - 1}/{max_retries}...")
                     time.sleep(retry_delay)
 
-                logger.debug("  ORCHESTRATOR [Anthropic]: Enviando request...")
+                logger.info(f"  ORCHESTRATOR [Anthropic]: Enviando request (intento {attempt}/{max_retries + 1}, timeout={timeout}s)...")
 
                 # Usar timeout forzado a nivel de thread
                 forced_timeout = timeout + 5.0
@@ -1236,7 +1236,7 @@ class QAIV2Orchestrator:
                     )
 
                 message = self._call_with_forced_timeout(_make_request, forced_timeout, "Anthropic API")
-                logger.debug("  ORCHESTRATOR [Anthropic]: ✓ Response recibido")
+                logger.info("  ORCHESTRATOR [Anthropic]: ✓ Response recibido")
 
                 # Si llegamos aquí, la llamada fue exitosa
                 break
