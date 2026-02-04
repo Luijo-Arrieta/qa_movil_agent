@@ -48,11 +48,19 @@ class TestSignUpSpec:
 
         Note: Uses unique timestamp-based email to avoid conflicts.
         """
-        objective = (
-            "Validar historia de usuario AC-003: registro completo de nuevo usuario "
-            "verificando campos obligatorios, aceptación de términos, verificación de email "
-            "y completado de perfil"
-        )
+        objective = """
+Feature: Registro de nuevo usuario
+  Como usuario nuevo de Gofixi
+  Quiero registrarme en la aplicación
+  Para poder solicitar servicios de reparación
+
+Scenario: Registro exitoso con email único
+  - Usuario completa todos los campos requeridos
+  - Acepta términos y condiciones
+  - Verifica su email con código de 4 dígitos
+  - Completa su perfil con nombre y apellido
+  - Accede a la pantalla principal
+"""
 
         runner = QAIV2TestRunner(driver=driver_setup, objective=objective)
 
@@ -63,43 +71,63 @@ class TestSignUpSpec:
         test_password = Config.TEST_USER_PASSWORD or "Test123!"
 
         test_plan = [
-            # Step 1: Open customer app and navigate to sign-up
-            # Step 1: Open customer app using HumanAction (lambda) for faster startup
+            # ═══════════════════════════════════════════════════
+            # Navegación inicial
+            # ═══════════════════════════════════════════════════
             lambda tools: tools.activate_app("com.imagineapps.gofixiicliente"),
-            "Esperar a ver la pantalla de inicio de sesión",
-            "Tocar el enlace o botón para crear una cuenta nueva",
-
-            # Step 2-3: Fill registration form (AC-003.1 & AC-003.3)
-            "Tocar el campo de entrada de fecha de nacimiento para abrir el selector de fecha",
-            "En el selector de fecha, cambiar el año hasta que sea 2006 o menor usando touch y scroll según sea necesario",
-            "Seleccionar el día 1 y mes enero en el selector de fecha",
-            "Tocar el botón de confirmar/aceptar la fecha en el selector (debe estar habilitado si los pasos anteriores fueron exitosos)",
             
-            f"Ingresar el correo '{test_email}' en el campo de email",
-            f"Ingresar la contraseña '{test_password}' en el campo de contraseña",
-            f"Ingresar nuevamente '{test_password}' en el campo de confirmación de contraseña",
-
-            "Marcar el checkbox de aceptación de términos y condiciones, si no está visible puedes hacer scroll down",
-
-            ## Step 4: Submit and verify email sent
-            "Envía el formulario desde una opción de crear cuenta o similar",
-            "Verificar que se muestra la pantalla para ingresar el código de verificación",
-
-            ## Step 5: Email verification (AC-003.4)
-            f"Obtener el código de verificación del correo '{test_email}' usando get_confirmation_code",
-            "Ingresar el código de verificación de 4 dígitos en el campo correspondiente",
-            "Envía el formulario para validar el código tocando el botón de confirmar o validar código",
-#
-            ## Step 6: Complete profile (AC-003.5)
-            "Esperar a ver la pantalla para completar el perfil",
-            "Ingresar nombre 'TestUser' en el campo de nombre",
-            "Ingresar apellido 'Demo' en el campo de apellido",
-            "Envía el formulario Tocando el botón de completar registro o finalizar",
-#
-            ## Step 7: Verify successful registration (AC-003.6)
-            "Verificar que se muestra la pantalla principal del cliente (home)",
-            "Verificar que la sesión está iniciada correctamente",
-        ]#
+            "Given la aplicación muestra la pantalla de inicio de sesión",
+            "When toco el enlace o botón para crear una cuenta nueva",
+            "Then veo la pantalla de registro",
+            
+            # ═══════════════════════════════════════════════════
+            # Fecha de nacimiento
+            # ═══════════════════════════════════════════════════
+            "When toco el campo de fecha de nacimiento",
+            "Then se abre el selector de fecha",
+            
+            "When en el selector cambio el año a 2006 o anterior usando scroll o botones",
+            "When selecciono el día 1 y mes enero",
+            "When confirmo la fecha seleccionada",
+            "Then el selector se cierra y la fecha queda guardada",
+            
+            # ═══════════════════════════════════════════════════
+            # Datos de registro
+            # ═══════════════════════════════════════════════════
+            f"When ingreso '{test_email}' en el campo de correo electrónico",
+            f"Then el campo de correo muestra el texto '{test_email}'",
+            
+            f"When ingreso '{test_password}' en el campo de contraseña",
+            f"When ingreso '{test_password}' en el campo de confirmar contraseña",
+            
+            "When hago scroll hacia abajo si es necesario",
+            "When marco el checkbox de términos y condiciones",
+            "Then el checkbox queda marcado",
+            
+            # ═══════════════════════════════════════════════════
+            # Envío y verificación de email
+            # ═══════════════════════════════════════════════════
+            "When toco el botón de crear cuenta",
+            "Then veo la pantalla para ingresar código de verificación",
+            
+            f"When obtengo el código de verificación del correo '{test_email}'",
+            "When ingreso el código de verificación de 4 dígitos",
+            "When confirmo el código",
+            "Then veo la pantalla para completar mi perfil",
+            
+            # ═══════════════════════════════════════════════════
+            # Completar perfil
+            # ═══════════════════════════════════════════════════
+            "When ingreso 'TestUser' en el campo de nombre",
+            "When ingreso 'Demo' en el campo de apellido",
+            "When toco el botón de completar registro",
+            
+            # ═══════════════════════════════════════════════════
+            # Verificación final
+            # ═══════════════════════════════════════════════════
+            "Then veo la pantalla principal de la aplicación",
+            "Then puedo acceder al menú de mi perfil",
+        ]
 
         success = runner.run_test_plan(test_plan)
         assert success, "El flujo de registro no se completó exitosamente"

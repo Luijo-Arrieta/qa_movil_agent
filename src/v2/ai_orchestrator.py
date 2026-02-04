@@ -145,6 +145,62 @@ RESTRICCIONES/SCOPES:
 - Si ves "Advertencia: El package 'X' no está permitido", significa que intentaste usar un package no autorizado. Usa uno de los packages permitidos.
 - Apps permitidas: {Config.ALLOWED_APP_PACKAGES}
 
+INTERPRETACIÓN DE PASOS GHERKIN:
+Los pasos del test plan usan sintaxis Given/When/Then en LENGUAJE NATURAL. Interprétalos así:
+
+GIVEN (Precondición):
+- Describe el estado esperado ANTES de actuar
+- Si no coincide con la UI actual, NO puedes ejecutar el paso
+- Ejemplo: "Given estoy en la pantalla de login" → Verifica que hay campos de email/password visibles
+
+WHEN (Acción):
+- Describe QUÉ hacer en lenguaje natural
+- TÚ decides CÓMO hacerlo (qué elemento tocar, qué herramienta usar)
+- Ejemplos de traducción:
+  * "When ingreso 'test@mail.com' en el campo de correo"
+    → Busca input con hint/text/content-desc relacionado a "correo"/"email"/"e-mail"
+    → Usa fill_field_by_id(element_id, value="test@mail.com")
+  
+  * "When toco el botón de crear cuenta"
+    → Busca button con text relacionado a "crear"/"registrar"/"sign up"/"cuenta"
+    → Usa touch_element_by_id(element_id)
+  
+  * "When marco el checkbox de términos"
+    → Busca checkbox cerca de texto "términos"/"condiciones"
+    → Usa touch_element_by_id(element_id)
+
+THEN (Verificación):
+- Describe el resultado esperado
+- Verifica que se cumplió
+- Ejemplos:
+  * "Then veo la pantalla de registro"
+    → Busca elementos característicos: campos email, password, términos
+  
+  * "Then el campo correo muestra 'test@mail.com'"
+    → Busca input con text='test@mail.com' cerca de label/hint de "correo"
+  
+  * "Then el checkbox queda marcado"
+    → Verifica checked=true en el elemento tocado
+
+REGLAS CRÍTICAS DE INTERPRETACIÓN:
+1. NO esperes que el paso mencione atributos técnicos (hint, content-desc, xpath, resource-id)
+2. USA el CONTEXTO SEMÁNTICO del paso para inferir qué elemento buscar
+3. Variaciones de lenguaje natural son equivalentes:
+   - "campo de correo" = "campo de email" = "campo de correo electrónico"
+   - "botón de crear" = "botón crear cuenta" = "botón registrarse"
+   - "pantalla de login" = "pantalla de inicio de sesión" = "pantalla de ingreso"
+4. Si el paso dice "campo de X", busca input cuyo hint/content-desc contenga X
+5. Si el paso dice "botón de Y", busca button cuyo text/content-desc contenga Y
+6. Si el paso dice "veo la pantalla P", busca elementos ÚNICOS/CARACTERÍSTICOS de P
+
+SEMÁNTICA DE ACCIONES:
+- "toco" / "presiono" / "selecciono" → touch_element_by_id
+- "ingreso" / "escribo" / "lleno" → fill_field_by_id
+- "hago scroll" → scroll_screen
+- "marco el checkbox" → touch_element_by_id en checkbox
+- "confirmo" / "acepto" → touch_element_by_id en botón de confirmación
+- "veo" / "aparece" / "se muestra" → assert_screen_contains o verificación de elementos
+
 LO MÁS IMPORTANTE: 
 - Ejecuta SOLO acciones del paso ACTUAL
 - NUNCA ejecutes acciones de pasos futuros, aunque los veas como completos
@@ -1619,7 +1675,38 @@ CRITERIOS DE COMPLETITUD (PASO ACTUAL):
 
 6. Análisis de Evidencia:
    - Usa el 'text', 'hint' y estructura de la UI para confirmar que lo que pide el paso ya ocurrió.
+
+7. INTERPRETACIÓN DE PASOS GHERKIN (LENGUAJE NATURAL):
+   Los pasos pueden usar sintaxis Given/When/Then. Interprétalos así:
+   
+   GIVEN (Precondición):
+   - "Given estoy en la pantalla de login" → Verifica que hay elementos de login visibles
+   - Si el GIVEN no coincide con la UI actual, el paso NO está completo
+   
+   WHEN (Acción ejecutada):
+   - "When ingreso 'X' en el campo Y" → Verifica que hay un input con text='X' relacionado a Y
+   - "When toco el botón Z" → Verifica que se ejecutó touch en un elemento relacionado a Z
+   - Usa contexto semántico: "campo de correo" incluye inputs con hint/content-desc sobre email/correo
+   
+   THEN (Verificación explícita):
+   - "Then veo la pantalla P" → Busca elementos ÚNICOS/CARACTERÍSTICOS de P
+   - "Then el campo X muestra 'Y'" → Busca input con text='Y' relacionado a X
+   - "Then el checkbox queda marcado" → Busca checkbox con checked=true
+   - CRÍTICO: Interpreta "pantalla principal" o "home" buscando navegación inferior, menú principal, etc.
+   - NO confundas popups intermedios (felicitaciones, éxito) con la pantalla destino final
+   
+   Ejemplos de verificación THEN:
+   * "Then veo la pantalla de registro"
+     → Busca: múltiples campos input (email, password), checkbox de términos
+   
+   * "Then veo la pantalla principal de la aplicación"
+     → Busca: navegación inferior con tabs, botón para solicitar servicio, opciones de menú
+     → NO debe ser: popup de "felicitaciones", pantalla de "registro exitoso" (son intermedias)
+   
+   * "Then el campo correo muestra 'test@mail.com'"
+     → Busca: input con text='test@mail.com' y hint/content-desc relacionado a correo/email
 """ + base_format
+
 
         elif check_type == "next":
             return """Eres QAI (QA Agent V2).
