@@ -1,0 +1,11 @@
+.test-editor-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.test-plan-info {
+  color: #666;
+  font-size: 0.9rem;
+}

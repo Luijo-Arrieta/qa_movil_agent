@@ -1,0 +1,20 @@
+.test-runner-info {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.test-runner-info ul {
+  margin-top: 0.5rem;
+  padding-left: 1.5rem;
+}
+
+.test-runner-info li {
+  margin-bottom: 0.25rem;
+}
+
+.warning {
+  color: #856404;
+  font-style: italic;
+}

@@ -1,0 +1,49 @@
+.device-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.no-devices {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.no-devices .hint {
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  opacity: 0.8;
+}
+
+.devices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.device-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.device-info {
+  flex: 1;
+}
+
+.device-name {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.device-id {
+  font-size: 0.85rem;
+  color: #666;
+  font-family: monospace;
+}

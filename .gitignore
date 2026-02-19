@@ -82,3 +82,5 @@ ElementHelper.js
 reports/
 apks/
 Callure/
+# CLI History
+.qa-agent-history

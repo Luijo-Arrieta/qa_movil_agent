@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: qa-mobile-agent-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      - APPIUM_SERVER_URL=${APPIUM_SERVER_URL:-http://host.docker.internal:4723}
+      - ANDROID_DEVICE_NAME=${ANDROID_DEVICE_NAME:-emulator-5554}
+      - ANDROID_APP_PACKAGE=${ANDROID_APP_PACKAGE:-}
+      - ANDROID_APP_ACTIVITY=${ANDROID_APP_ACTIVITY:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    volumes:
+      - ./tests:/app/tests
+      - ./results:/app/results
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qa-mobile-agent-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Opcional: Servidor Appium (solo si no tienes uno corriendo fuera de Docker)
+  # appium:
+  #   image: appium/appium:latest
+  #   container_name: qa-mobile-agent-appium
+  #   ports:
+  #     - "4723:4723"
+  #   environment:
+  #     - ANDROID_HOME=/opt/android
+  #   volumes:
+  #     - appium-data:/root/.android
+  #   network_mode: host
+  #   privileged: true
+
+volumes:
+  appium-data:

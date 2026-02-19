@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    adb \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar archivos de configuración
+COPY pyproject.toml poetry.lock* ./
+
+# Instalar Poetry
+RUN pip install poetry && \
+    poetry config virtualenvs.create false
+
+# Instalar dependencias
+RUN poetry install --no-dev
+
+# Copiar código
+COPY . .
+
+# Exponer puerto
+EXPOSE 8000
+
+# Comando por defecto
+CMD ["poetry", "run", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
